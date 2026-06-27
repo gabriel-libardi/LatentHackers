@@ -10,6 +10,8 @@ import kagglehub
 path = kagglehub.dataset_download("caspervanengelenburg/modified-swiss-dwellings")
 
 print("Path to dataset files:", path)
+import os
+print(os.environ.get("CUDA_VISIBLE_DEVICES"))
 
 def train(args):
     # 1. Device selection
