@@ -4,6 +4,12 @@ import torch
 from torch.utils.data import DataLoader
 from dataset import FloorplanDataset, collate_fn
 from house_diffusion import HouseDiffusionModel, GaussianDiffusion
+import kagglehub
+
+# Download latest version
+path = kagglehub.dataset_download("caspervanengelenburg/modified-swiss-dwellings")
+
+print("Path to dataset files:", path)
 
 def train(args):
     # 1. Device selection
