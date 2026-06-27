@@ -62,8 +62,8 @@ class OutlineConditionedGenerator:
             d_model=d_model,
             num_layers=num_layers,
             num_room_types=10,
-            max_corners_per_room=32,
-            max_rooms=64,
+            max_corners_per_room=512,
+            max_rooms=512,
             max_outline_len=self.max_outline_len
         ).to(self.device)
         

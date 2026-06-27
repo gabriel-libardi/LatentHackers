@@ -41,8 +41,8 @@ def train(args):
         num_layers=args.num_layers,
         dropout=args.dropout,
         num_room_types=10,            # 10 unique room categories in MSD
-        max_corners_per_room=32,      # Padded room corners limit
-        max_rooms=64,                 # Limit on max rooms per plan
+        max_corners_per_room=512,     # Padded room corners limit
+        max_rooms=512,                # Limit on max rooms per plan
         max_outline_len=args.max_outline_len
     ).to(device)
     

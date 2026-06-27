@@ -131,7 +131,7 @@ class CornerEmbedding(nn.Module):
     Combines the spatial coordinates of room corners with entity category,
     corner indices, entity instance IDs, and timestep embeddings.
     """
-    def __init__(self, d_model, num_room_types=32, max_corners_per_room=16, max_rooms=64):
+    def __init__(self, d_model, num_room_types=32, max_corners_per_room=512, max_rooms=512):
         super().__init__()
         self.coord_proj = nn.Linear(2, d_model)
         self.room_type_emb = nn.Embedding(num_room_types, d_model)
@@ -144,6 +144,11 @@ class CornerEmbedding(nn.Module):
         # entity_idx: (B, N) -> instance ID (separates room instances)
         # corner_idx: (B, N) -> index of the corner within its polygon
         # time_emb: (B, d_model)
+        
+        # Clamp index inputs to prevent out-of-range indexing errors
+        entity_type = torch.clamp(entity_type, 0, self.room_type_emb.num_embeddings - 1)
+        entity_idx = torch.clamp(entity_idx, 0, self.room_idx_emb.num_embeddings - 1)
+        corner_idx = torch.clamp(corner_idx, 0, self.corner_idx_emb.num_embeddings - 1)
         
         emb = self.coord_proj(x_t)
         emb = emb + self.room_type_emb(entity_type)
@@ -237,7 +242,7 @@ class HouseDiffusionModel(nn.Module):
     outer apartment outlines instead of relational graphs.
     """
     def __init__(self, d_model=256, num_heads=8, d_ff=1024, num_layers=6, dropout=0.1,
-                 num_room_types=32, max_corners_per_room=16, max_rooms=64, max_outline_len=128):
+                 num_room_types=32, max_corners_per_room=512, max_rooms=512, max_outline_len=128):
         super().__init__()
         self.time_embed = TimestepEmbedding(d_model)
         self.corner_embed = CornerEmbedding(d_model, num_room_types, max_corners_per_room, max_rooms)
