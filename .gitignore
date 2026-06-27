@@ -32,6 +32,9 @@ MANIFEST
 *.manifest
 *.spec
 
+*.npy
+modified-swiss-dwellings-v2/*
+
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
