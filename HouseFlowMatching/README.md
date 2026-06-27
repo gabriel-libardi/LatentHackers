@@ -2,10 +2,10 @@
 
 Outline conditioned **flow matching** model for vector floorplan generation on the Modified Swiss Dwellings (MSD) dataset.
 
-This is the flow-matching counterpart of our diffusion model (`HouseDiffusion2`). It shares the **exact same Transformer backbone** (component-wise self-attention, global self-attention, outline cross-attention) and the **same data pipeline**. Only the generative process differs:
+This is the flow-matching counterpart of our diffusion model. It shares the **exact same Transformer backbone** (component-wise self-attention, global self-attention, outline cross-attention) and the **same data pipeline**. Only the generative process differs:
 
 - **Diffusion (DDPM):** the network predicts the noise added to room-corner coordinates and denoises over 1000 discrete steps.
-- **Flow matching (this folder):** the network predicts a **velocity field** along a straight (optimal-transport) path between noise and data, and generation integrates an ODE in ~100 Euler steps — smoother trajectories and much faster sampling.
+- **Flow matching:** the network predicts a **velocity field** along a straight (optimal-transport) path between noise and data, and generation integrates an ODE in ~100 Euler steps smoother trajectories and much faster sampling.
 
 Given only an apartment outline, the model fills in the interior rooms as typed vector polygons.
 
@@ -24,7 +24,7 @@ With `data` = clean corners and `noise ~ N(0, I)`:
 ```
 x_t = (1 - t) * noise + t * data          # straight path,  t in [0, 1]
 target_velocity = data - noise            # constant velocity
-loss = MSE( model(x_t, t, outline) , target_velocity )
+loss = MSE( model(x_t, t, outline) , target_velocity ) // I need to try with other LOSS metric
 ```
 
 Sampling starts from `noise` and integrates `dx/dt = model(x, t, outline)` from `t = 0` to `t = 1`.
@@ -38,7 +38,7 @@ pip install -r requirements.txt
 ## Train
 
 ```bash
-python train.py --csv_path mds_V2_5.372k.csv --train_index train_indices.txt --epochs 50 --batch_size 16
+python train.py --csv_path mds_V2_5.372k.csv --train_index train_indices.txt --epochs 50 --batch_size 16 or //32/64
 ```
 
 Checkpoints are saved as `flow_epoch_*.pth` and `flow_final.pth`.
