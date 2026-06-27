@@ -1,6 +1,6 @@
 # HouseFlowMatching
 
-Outline-conditioned **flow matching** model for vector floorplan generation on the Modified Swiss Dwellings (MSD) dataset.
+Outline conditioned **flow matching** model for vector floorplan generation on the Modified Swiss Dwellings (MSD) dataset.
 
 This is the flow-matching counterpart of our diffusion model (`HouseDiffusion2`). It shares the **exact same Transformer backbone** (component-wise self-attention, global self-attention, outline cross-attention) and the **same data pipeline**. Only the generative process differs:
 
