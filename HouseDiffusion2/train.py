@@ -10,6 +10,8 @@ import kagglehub
 path = kagglehub.dataset_download("caspervanengelenburg/modified-swiss-dwellings")
 
 print("Path to dataset files:", path)
+import os
+print(os.environ.get("CUDA_VISIBLE_DEVICES"))
 
 def train(args):
     # 1. Device selection
@@ -34,6 +36,7 @@ def train(args):
     )
     
     # 3. Model instantiation
+    
     model = HouseDiffusionModel(
         d_model=args.d_model,
         num_heads=args.num_heads,
@@ -96,13 +99,16 @@ def train(args):
                 entity_idx=entity_idx,
                 corner_idx=corner_idx,
                 outline=outline,
-                outline_mask=outline_mask
+                outline_mask=outline_mask,
+                corner_mask=corner_mask
             )
             
-            # Mask out loss on padded corner tokens
-            loss_elementwise = F_mse_elementwise = (predicted_noise - noise) ** 2
-            loss = (loss_elementwise.mean(dim=-1) * corner_mask).sum() / corner_mask.sum()
+            # Mask out continuous loss on padded corner tokens
+            loss_cont_elementwise = (predicted_noise - noise) ** 2
+            loss_continuous = (loss_cont_elementwise.mean(dim=-1) * corner_mask).sum() / corner_mask.sum()
             
+            # Combined Loss
+            loss = loss_continuous
             loss.backward()
             
             # Gradient clipping to prevent explosion
@@ -139,7 +145,7 @@ if __name__ == "__main__":
     parser.add_argument("--steps", type=int, default=1000, help="Number of diffusion timesteps")
     parser.add_argument("--d_model", type=int, default=256, help="Transformer d_model dimension")
     parser.add_argument("--num_heads", type=int, default=8, help="Number of attention heads")
-    parser.add_argument("--d_ff", type=int, default=1024, help="Transformer FFN dimension")
+    parser.add_argument("--d_ff", type=int, default=512, help="Transformer FFN dimension")
     parser.add_argument("--num_layers", type=int, default=6, help="Number of Transformer block layers")
     parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate")
     parser.add_argument("--max_total_corners", type=int, default=800, help="Maximum corners limit to process in dataset")

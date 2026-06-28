@@ -7,12 +7,47 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 
-# Unique room types in the dataset
-ROOM_TYPES = [
-    'Bathroom', 'Livingroom', 'Bedroom', 'Kitchen', 'Balcony', 
-    'Corridor', 'Dining', 'Structure', 'Stairs', 'Storeroom'
+# Room mappings and names from constants.py
+ROOM_MAPPING = {
+    'ROOM': 'Bedroom',
+    'BEDROOM': 'Bedroom',
+    'BALCONY': 'Balcony',
+    'TERRACE': 'Balcony',
+    'KITCHEN': 'Kitchen',
+    'DINING': 'Dining',
+    'KITCHEN_DINING': 'Kitchen',
+    'LIVING_ROOM': 'Livingroom',
+    'LIVING_DINING': 'Livingroom',
+    'BATHROOM': 'Bathroom',
+    'CORRIDOR': 'Corridor',
+    'CORRIDORS_AND_HALLS': 'Corridor',
+    'STAIRS': 'Stairs',
+    'STAIRCASE': 'Stairs',
+    'ELEVATOR': 'Stairs',
+    'RAILING': 'Balcony',
+    'VOID': 'Stairs',
+    'SHAFT': 'Structure',
+    'WALL': 'Structure',
+    'COLUMN': 'Structure',
+    'STOREROOM': 'Storeroom',
+    'ENTRANCE_DOOR': 'Entrance Door',
+    'DOOR': 'Door',
+    'WINDOW': 'Window'
+}
+
+ROOM_NAMES = [
+    'Bedroom', 'Livingroom', 'Kitchen', 'Dining', 'Corridor', 
+    'Stairs', 'Storeroom', 'Bathroom', 'Balcony', 'Structure', 
+    'Door', 'Entrance Door', 'Window'
 ]
-ROOM_TYPE_TO_IDX = {name: idx for idx, name in enumerate(ROOM_TYPES)}
+ROOM_TYPES = ROOM_NAMES
+ROOM_TYPE_TO_IDX = {name: idx for idx, name in enumerate(ROOM_NAMES)}
+
+def generate_outline(room_geometries, wall_bridge_distance=0.3):
+    """
+    Outline generation function integrated from dataExploration notebook.
+    """
+    return room_geometries.buffer(wall_bridge_distance).union_all().buffer(-wall_bridge_distance)
 
 class FloorplanDataset(Dataset):
     def __init__(self, csv_path, index_file, max_total_corners=800, max_outline_len=128):
@@ -60,24 +95,21 @@ class FloorplanDataset(Dataset):
                 # Only keep Polygons and MultiPolygons
                 if geom.geom_type in ['Polygon', 'MultiPolygon']:
                     geoms.append(geom)
-                    room_types.append(row['roomtype'])
+                    
+                    # Apply mapping from dataExploration
+                    subtype_str = str(row['entity_subtype']).strip()
+                    room_name = ROOM_MAPPING.get(subtype_str, 'Livingroom')
+                    room_types.append(room_name)
             except Exception:
                 continue
                 
         if len(geoms) == 0:
             return self.__getitem__((idx + 1) % len(self))
             
-        # Build the outer outline
-        # Standard script: buffer out by 0.3m, union, buffer back by -0.3m
-        wall_bridge_distance = 0.3
-        buffered_geoms = [g.buffer(wall_bridge_distance) for g in geoms]
-        
-        # Unify them
+        # Build the outer outline using the notebook's contour logic
         try:
-            union_geom = buffered_geoms[0]
-            for g in buffered_geoms[1:]:
-                union_geom = union_geom.union(g)
-            solid_outline_geom = union_geom.buffer(-wall_bridge_distance)
+            room_series = gpd.GeoSeries(geoms)
+            solid_outline_geom = generate_outline(room_series, wall_bridge_distance=0.3)
         except Exception:
             return self.__getitem__((idx + 1) % len(self))
             

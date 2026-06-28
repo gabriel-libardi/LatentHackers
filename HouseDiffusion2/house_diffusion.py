@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import random
 
 # =====================================================================
 # 1. Attention Mechanisms
@@ -130,10 +131,11 @@ class CornerEmbedding(nn.Module):
     """
     Combines the spatial coordinates of room corners with entity category,
     corner indices, entity instance IDs, and timestep embeddings.
+    Integrates Corner Augmentation (AU) by sampling points along wall segments.
     """
-    def __init__(self, d_model, num_room_types=32, max_corners_per_room=512, max_rooms=512):
+    def __init__(self, d_model, num_room_types=10, max_corners_per_room=512, max_rooms=512):
         super().__init__()
-        self.coord_proj = nn.Linear(2, d_model)
+        self.coord_proj = nn.Linear(18, d_model)  # Projected from augmented coordinate of size 18 (2 + 8 * 2)
         self.room_type_emb = nn.Embedding(num_room_types, d_model)
         self.corner_idx_emb = nn.Embedding(max_corners_per_room, d_model)
         self.room_idx_emb = nn.Embedding(max_rooms, d_model)
@@ -144,13 +146,35 @@ class CornerEmbedding(nn.Module):
         # entity_idx: (B, N) -> instance ID (separates room instances)
         # corner_idx: (B, N) -> index of the corner within its polygon
         # time_emb: (B, d_model)
+        B, N, _ = x_t.shape
         
-        # Clamp index inputs to prevent out-of-range indexing errors
+        # 1. Corner Augmentation (AU): sample 8 points along the segment connecting x_t to the next corner
+        same_room = (entity_idx.unsqueeze(2) == entity_idx.unsqueeze(1))  # (B, N, N)
+        is_next = (corner_idx.unsqueeze(2) == (corner_idx.unsqueeze(1) + 1))  # (B, N, N)
+        is_wrap = (corner_idx.unsqueeze(2) == 0)  # (B, N, N)
+        
+        match_next = same_room & is_next
+        match_wrap = same_room & is_wrap
+        
+        has_next = match_next.any(dim=-1, keepdim=True)  # (B, N, 1)
+        transition = torch.where(has_next, match_next.float(), match_wrap.float())
+        
+        x_next = torch.matmul(transition, x_t)  # (B, N, 2)
+        
+        # Sample 8 points along the segment connecting x_t and x_next
+        lambdas = torch.linspace(0.0, 1.0, 8, device=x_t.device).view(1, 1, 8, 1)
+        sampled_pts = (1.0 - lambdas) * x_t.unsqueeze(2) + lambdas * x_next.unsqueeze(2)  # (B, N, 8, 2)
+        sampled_pts_flat = sampled_pts.view(B, N, 16)
+        
+        # Concatenate original coordinates and segment points
+        x_augmented = torch.cat([x_t, sampled_pts_flat], dim=-1)  # (B, N, 18)
+        
+        # 2. Embed indices
         entity_type = torch.clamp(entity_type, 0, self.room_type_emb.num_embeddings - 1)
         entity_idx = torch.clamp(entity_idx, 0, self.room_idx_emb.num_embeddings - 1)
         corner_idx = torch.clamp(corner_idx, 0, self.corner_idx_emb.num_embeddings - 1)
         
-        emb = self.coord_proj(x_t)
+        emb = self.coord_proj(x_augmented)
         emb = emb + self.room_type_emb(entity_type)
         emb = emb + self.corner_idx_emb(corner_idx)
         emb = emb + self.room_idx_emb(entity_idx)
@@ -216,13 +240,13 @@ class HouseDiffusionBlock(nn.Module):
         self.gsa_dropout = nn.Dropout(dropout)
         self.cross_dropout = nn.Dropout(dropout)
         
-    def forward(self, x, outline_emb, csa_mask=None, outline_mask=None):
+    def forward(self, x, outline_emb, csa_mask=None, gsa_mask=None, outline_mask=None):
         # 1. Component-wise Self-Attention (CSA): limit interactions to corners of the same room
         csa_out = self.csa_layer(self.csa_norm(x), mask=csa_mask)
         x = x + self.csa_dropout(csa_out)
         
         # 2. Global Self-Attention (GSA): global interaction between rooms
-        gsa_out = self.gsa_layer(self.gsa_norm(x), mask=None)
+        gsa_out = self.gsa_layer(self.gsa_norm(x), mask=gsa_mask)
         x = x + self.gsa_dropout(gsa_out)
         
         # 3. Outline Cross-Attention: align room geometries with the apartment boundaries
@@ -239,10 +263,10 @@ class HouseDiffusionBlock(nn.Module):
 class HouseDiffusionModel(nn.Module):
     """
     Reimplemented HouseDiffusion Transformer architecture conditioned on
-    outer apartment outlines instead of relational graphs.
+    outer apartment outlines instead of relational graphs, without discrete denoising.
     """
-    def __init__(self, d_model=256, num_heads=8, d_ff=1024, num_layers=6, dropout=0.1,
-                 num_room_types=32, max_corners_per_room=512, max_rooms=512, max_outline_len=128):
+    def __init__(self, d_model=256, num_heads=8, d_ff=512, num_layers=6, dropout=0.1,
+                 num_room_types=10, max_corners_per_room=512, max_rooms=512, max_outline_len=128):
         super().__init__()
         self.time_embed = TimestepEmbedding(d_model)
         self.corner_embed = CornerEmbedding(d_model, num_room_types, max_corners_per_room, max_rooms)
@@ -254,9 +278,9 @@ class HouseDiffusionModel(nn.Module):
         ])
         
         self.out_norm = nn.LayerNorm(d_model)
-        self.out_proj = nn.Linear(d_model, 2)  # Outputs 2D noise / coordinates
+        self.out_proj = nn.Linear(d_model, 2)       # Predicts 2D noise / coordinates
         
-    def forward(self, x_t, timesteps, entity_type, entity_idx, corner_idx, outline, outline_mask=None):
+    def forward(self, x_t, timesteps, entity_type, entity_idx, corner_idx, outline, outline_mask=None, corner_mask=None):
         """
         Args:
             x_t: (B, N, 2) Noisy room/door corner coordinates
@@ -266,6 +290,7 @@ class HouseDiffusionModel(nn.Module):
             corner_idx: (B, N) Indices of corners within room polygons
             outline: (B, M, 2) outer outline coordinates
             outline_mask: (B, M) Binary mask representing valid outline vertices (1 for active, 0 for padded)
+            corner_mask: (B, N) Binary mask representing valid room corner tokens (1 for active, 0 for padded)
         """
         B, N, _ = x_t.shape
         
@@ -282,25 +307,118 @@ class HouseDiffusionModel(nn.Module):
         # csa_mask[b, i, j] = 1 if entity_idx[b, i] == entity_idx[b, j] else 0
         csa_mask = (entity_idx.unsqueeze(2) == entity_idx.unsqueeze(1)).float()  # (B, N, N)
         
-        # 5. Build cross-attention boundary mask
+        # 5. Build GSA and token masking
+        gsa_mask = None
+        if corner_mask is not None:
+            # Build valid pair mask of shape (B, N, N)
+            valid_mask = (corner_mask.unsqueeze(2) * corner_mask.unsqueeze(1)).float()
+            csa_mask = csa_mask * valid_mask
+            gsa_mask = valid_mask
+            
+        # 6. Build cross-attention boundary mask
         cross_attn_mask = None
         if outline_mask is not None:
             # Shape: (B, N, M)
             cross_attn_mask = outline_mask.unsqueeze(1).repeat(1, N, 1)
             
-        # 6. Pass through Transformer blocks
+        # 7. Pass through Transformer blocks
         for block in self.blocks:
-            x = block(x, outline_emb, csa_mask=csa_mask, outline_mask=cross_attn_mask)
+            x = block(x, outline_emb, csa_mask=csa_mask, gsa_mask=gsa_mask, outline_mask=cross_attn_mask)
             
-        # 7. Project features back to 2D space
+        # 8. Project features back to output spaces
         x = self.out_norm(x)
-        out = self.out_proj(x)  # (B, N, 2)
+        out_continuous = self.out_proj(x)       # (B, N, 2)
         
-        return out
+        return out_continuous
 
 
 # =====================================================================
-# 4. Gaussian Diffusion Helper
+# 4. Room Condition Sampler
+# =====================================================================
+class RoomConditionSampler:
+    """
+    Constructs the input conditions probabilistically based on histograms
+    derived from the training dataset (e.g., Modified Swiss Dwellings).
+    """
+    def __init__(self, max_total_corners=128):
+        self.max_total_corners = max_total_corners
+        
+        # Empirical room counts per plan (mostly between 3 and 8 rooms)
+        self.room_counts = [3, 4, 5, 6, 7, 8]
+        self.room_count_weights = [0.1, 0.25, 0.3, 0.2, 0.1, 0.05]
+        
+        # All room types available in dataset (mapped to correct indices)
+        # 0: Bedroom, 1: Livingroom, 2: Kitchen, 3: Dining, 4: Corridor,
+        # 5: Stairs, 6: Storeroom, 7: Bathroom, 8: Balcony, 9: Structure
+        self.room_types = list(range(10))
+        self.room_type_weights = [0.25, 0.15, 0.15, 0.05, 0.15, 0.02, 0.03, 0.15, 0.08, 0.02]
+        
+        # Corner histograms per room type: {type: ([possible N corners], [probabilities])}
+        self.corner_histograms = {
+            0: ([4, 6], [0.95, 0.05]),         # Bedroom (usually rect)
+            1: ([4, 6, 8], [0.70, 0.25, 0.05]), # Livingroom
+            2: ([4, 6], [0.85, 0.15]),         # Kitchen
+            3: ([4, 6], [0.90, 0.10]),         # Dining
+            4: ([4, 6, 8, 10], [0.4, 0.4, 0.15, 0.05]), # Corridor (more complex shapes)
+            5: ([4], [1.0]),                   # Stairs
+            6: ([4], [1.0]),                   # Storeroom
+            7: ([4], [1.0]),                   # Bathroom (usually rect)
+            8: ([4, 6], [0.90, 0.10]),         # Balcony
+            9: ([4], [1.0])                    # Structure
+        }
+        
+    def sample(self, batch_size, device):
+        batch_entity_type, batch_entity_idx = [], []
+        batch_corner_idx, batch_corner_mask = [], []
+        
+        for b in range(batch_size):
+            # 1. Sample total number of rooms
+            num_rooms = random.choices(self.room_counts, weights=self.room_count_weights, k=1)[0]
+            
+            b_e_type, b_e_idx, b_c_idx = [], [], []
+            
+            # Ensure at least one Livingroom (1), Kitchen (2), and Bathroom (7). Randomize the rest.
+            types_to_generate = [1, 2, 7]
+            if num_rooms > 3:
+                types_to_generate += random.choices(self.room_types, weights=self.room_type_weights, k=num_rooms-3)
+            else:
+                types_to_generate = types_to_generate[:num_rooms]
+                
+            for room_id, r_type in enumerate(types_to_generate):
+                # 2. Sample number of corners for this specific room type
+                c_opts, c_weights = self.corner_histograms[r_type]
+                num_corners = random.choices(c_opts, weights=c_weights, k=1)[0]
+                
+                # 3. Populate sequences
+                b_e_type.extend([r_type] * num_corners)
+                b_e_idx.extend([room_id] * num_corners)
+                b_c_idx.extend(list(range(num_corners)))
+                
+            # 4. Pad sequences to maximum length for batching
+            actual_len = len(b_e_type)
+            pad_len = max(0, self.max_total_corners - actual_len)
+            
+            # Mask is 1 for real corners, 0 for padded ones
+            b_mask = [1] * actual_len + [0] * pad_len
+            b_e_type = b_e_type + [0] * pad_len
+            b_e_idx = b_e_idx + [0] * pad_len
+            b_c_idx = b_c_idx + [0] * pad_len
+            
+            batch_entity_type.append(b_e_type[:self.max_total_corners])
+            batch_entity_idx.append(b_e_idx[:self.max_total_corners])
+            batch_corner_idx.append(b_c_idx[:self.max_total_corners])
+            batch_corner_mask.append(b_mask[:self.max_total_corners])
+            
+        return {
+            "entity_type": torch.tensor(batch_entity_type, dtype=torch.long, device=device),
+            "entity_idx": torch.tensor(batch_entity_idx, dtype=torch.long, device=device),
+            "corner_idx": torch.tensor(batch_corner_idx, dtype=torch.long, device=device),
+            "corner_mask": torch.tensor(batch_corner_mask, dtype=torch.float32, device=device)
+        }
+
+
+# =====================================================================
+# 5. Gaussian Diffusion Helper
 # =====================================================================
 class GaussianDiffusion:
     """
@@ -329,7 +447,6 @@ class GaussianDiffusion:
         if noise is None:
             noise = torch.randn_like(x_0)
             
-        # Extract variables at t
         sqrt_alphas_cumprod_t = self.sqrt_alphas_cumprod[t].view(-1, 1, 1)
         sqrt_one_minus_alphas_cumprod_t = self.sqrt_one_minus_alphas_cumprod[t].view(-1, 1, 1)
         
@@ -337,21 +454,13 @@ class GaussianDiffusion:
         
     def p_losses(self, model, x_0, t, cond, noise=None):
         """
-        Compute mean squared error loss between model predictions and target noise.
-        cond is a dictionary containing:
-        - entity_type
-        - entity_idx
-        - corner_idx
-        - outline
-        - outline_mask
+        Compute standard continuous MSE loss (noise prediction).
         """
         if noise is None:
             noise = torch.randn_like(x_0)
             
-        # Forward pass: create noisy sample
         x_t = self.q_sample(x_0, t, noise)
         
-        # Predict the noise using the outline-conditioned model
         predicted_noise = model(
             x_t=x_t,
             timesteps=t,
@@ -359,22 +468,28 @@ class GaussianDiffusion:
             entity_idx=cond["entity_idx"],
             corner_idx=cond["corner_idx"],
             outline=cond["outline"],
-            outline_mask=cond.get("outline_mask", None)
+            outline_mask=cond.get("outline_mask", None),
+            corner_mask=cond.get("corner_mask", None)
         )
         
-        return F.mse_loss(predicted_noise, noise)
+        # Continuous loss: mask out padded tokens
+        loss_continuous = F.mse_loss(predicted_noise, noise, reduction='none')
+        if cond.get("corner_mask", None) is not None:
+            mask = cond["corner_mask"].unsqueeze(-1)
+            loss_continuous = (loss_continuous * mask).sum() / (mask.sum() + 1e-8)
+        else:
+            loss_continuous = loss_continuous.mean()
+            
+        return loss_continuous
         
     @torch.no_grad()
     def p_sample(self, model, x, t, cond):
         """
         Perform a single reverse step to denoise x_t into x_{t-1}.
         """
-        # Obtain alphas and betas for current timestep
         beta_t = self.betas[t].view(-1, 1, 1)
-        sqrt_one_minus_alphas_cumprod_t = self.sqrt_one_minus_alphas_cumprod[t].view(-1, 1, 1)
         alpha_t = self.alphas[t].view(-1, 1, 1)
         
-        # Predict noise
         predicted_noise = model(
             x_t=x,
             timesteps=t,
@@ -382,12 +497,12 @@ class GaussianDiffusion:
             entity_idx=cond["entity_idx"],
             corner_idx=cond["corner_idx"],
             outline=cond["outline"],
-            outline_mask=cond.get("outline_mask", None)
+            outline_mask=cond.get("outline_mask", None),
+            corner_mask=cond.get("corner_mask", None)
         )
         
-        # Compute mean
+        sqrt_one_minus_alphas_cumprod_t = self.sqrt_one_minus_alphas_cumprod[t].view(-1, 1, 1)
         mean = (1.0 / torch.sqrt(alpha_t)) * (x - (beta_t / sqrt_one_minus_alphas_cumprod_t) * predicted_noise)
-        
         
         if t[0] == 0:
             return mean
@@ -400,10 +515,8 @@ class GaussianDiffusion:
     def p_sample_loop(self, model, shape, cond):
         """
         Complete reverse process loop to generate vector floorplan corners from pure noise.
-        shape: (B, N, 2)
         """
         B = shape[0]
-        # Start from isotropic Gaussian noise
         x = torch.randn(shape, device=self.device)
         
         for i in reversed(range(self.steps)):
@@ -411,3 +524,45 @@ class GaussianDiffusion:
             x = self.p_sample(model, x, t, cond)
             
         return x
+
+
+@torch.no_grad()
+def generate_floorplan(model, diffusion, condition_sampler, outline, outline_mask=None, max_corners=128):
+    """
+    Generates a full vector floorplan conditioned only on the apartment outline.
+    outline shape: (B, M, 2)
+    """
+    model.eval()
+    B = outline.shape[0]
+    device = outline.device
+    
+    # 1. Probabilistically sample internal room topology from dataset histograms
+    cond = condition_sampler.sample(batch_size=B, device=device)
+    cond["outline"] = outline
+    cond["outline_mask"] = outline_mask
+    
+    # 2. Define the shape of the noise tensor to start diffusing
+    shape = (B, max_corners, 2)
+    
+    # 3. Run the standard continuous reverse diffusion loop
+    generated_coords = diffusion.p_sample_loop(
+        model=model, 
+        shape=shape, 
+        cond=cond
+    )
+    
+    # 4. Filter out padded corners using the generated mask
+    final_layouts = []
+    for b in range(B):
+        mask = cond["corner_mask"][b].bool()
+        coords = generated_coords[b][mask]
+        types = cond["entity_type"][b][mask]
+        room_ids = cond["entity_idx"][b][mask]
+        
+        final_layouts.append({
+            "coordinates": coords, # Final 2D vector corners
+            "room_types": types,   
+            "room_ids": room_ids   # Group coordinates by room_ids to form polygons
+        })
+        
+    return final_layouts

@@ -9,53 +9,20 @@ from shapely.geometry import Polygon, MultiPolygon
 import matplotlib.pyplot as plt
 import numpy as np
 
-from dataset import FloorplanDataset, ROOM_TYPES, ROOM_TYPE_TO_IDX
-from house_diffusion import HouseDiffusionModel, GaussianDiffusion
+from dataset import FloorplanDataset, ROOM_TYPES, ROOM_MAPPING
+from house_diffusion import HouseDiffusionModel, GaussianDiffusion, RoomConditionSampler, generate_floorplan
 
 class OutlineConditionedGenerator:
     """
-    Retrieves the closest training layout's room configuration and uses the trained
-    HouseDiffusion model to generate the room partitions for a given bare outline.
+    Generates the room partitions for a given bare outline by sampling room topologies
+    probabilistically from dataset histograms, using the trained HouseDiffusion model.
     """
-    def __init__(self, csv_path, train_index, model_path, d_model=256, num_layers=6, device="cpu"):
+    def __init__(self, model_path, d_model=256, num_layers=6, device="cpu"):
         self.device = torch.device(device)
         self.max_outline_len = 128
         
-        # Load train set to use as database for query retrieval
-        print("Building query database from training set...")
-        self.train_dataset = FloorplanDataset(csv_path, train_index)
-        
-        # Build training outlines database
-        self.train_outlines = []
-        for i in range(len(self.train_dataset)):
-            try:
-                item = self.train_dataset[i]
-                if item is not None:
-                    # Construct shapely polygon from raw geometry
-                    floor_id = item["floor_id"]
-                    floor_df = self.train_dataset.grouped.get_group(floor_id)
-                    area_df = floor_df[floor_df['entity_type'] == 'area'].copy()
-                    
-                    geoms = [wkt.loads(g) for g in area_df['geom'] if wkt.loads(g).geom_type in ['Polygon', 'MultiPolygon']]
-                    wall_bridge_distance = 0.3
-                    buffered_geoms = [g.buffer(wall_bridge_distance) for g in geoms]
-                    union_geom = buffered_geoms[0]
-                    for g in buffered_geoms[1:]:
-                        union_geom = union_geom.union(g)
-                    solid_outline_geom = union_geom.buffer(-wall_bridge_distance)
-                    
-                    if not solid_outline_geom.is_empty:
-                        self.train_outlines.append({
-                            "floor_id": floor_id,
-                            "geom": solid_outline_geom,
-                            "area": solid_outline_geom.area,
-                            "entity_type": item["entity_type"],
-                            "entity_idx": item["entity_idx"],
-                            "corner_idx": item["corner_idx"]
-                        })
-            except Exception:
-                continue
-        print(f"Database built with {len(self.train_outlines)} valid training outlines.")
+        # Initialize condition sampler using standard training histograms
+        self.condition_sampler = RoomConditionSampler(max_total_corners=128)
         
         # Initialize model
         self.model = HouseDiffusionModel(
@@ -76,66 +43,14 @@ class OutlineConditionedGenerator:
         self.model.eval()
         self.diffusion = GaussianDiffusion(steps=1000, device=self.device)
         
-    def find_nearest_layout(self, query_outline_geom):
-        """
-        Finds the training outline most similar to the query outline in area and shape
-        using centroid-aligned Intersection over Union (IoU).
-        """
-        best_iou = -1.0
-        best_match = None
-        
-        query_area = query_outline_geom.area
-        query_centroid = query_outline_geom.centroid
-        
-        # Filter database by area to make query matching fast
-        candidate_matches = [
-            out for out in self.train_outlines
-            if 0.5 * query_area <= out["area"] <= 2.0 * query_area
-        ]
-        
-        if not candidate_matches:
-            candidate_matches = self.train_outlines
-            
-        for candidate in candidate_matches:
-            train_geom = candidate["geom"]
-            
-            # Align centroids
-            dx = query_centroid.x - train_geom.centroid.x
-            dy = query_centroid.y - train_geom.centroid.y
-            aligned_train_geom = shapely.affinity.translate(train_geom, xoff=dx, yoff=dy)
-            
-            # Compute centroid-aligned IoU
-            try:
-                intersection = query_outline_geom.intersection(aligned_train_geom).area
-                union = query_outline_geom.union(aligned_train_geom).area
-                iou = intersection / (union + 1e-8)
-            except Exception:
-                iou = 0.0
-                
-            if iou > best_iou:
-                best_iou = iou
-                best_match = candidate
-                
-        return best_match
-
     def generate(self, outline_polygon):
         """
         Main entry point for generating room partitions given a bare apartment outline.
+        Uses the generate_floorplan method from house_diffusion to sample layouts.
         Returns:
             List of tuples: (shapely.geometry.Polygon, room_type_name)
         """
-        # 1. Retrieve the best matching room configuration layout
-        nearest = self.find_nearest_layout(outline_polygon)
-        if nearest is None:
-            raise ValueError("No matching layout configuration found in the training database.")
-            
-        # Get query indices from nearest training example
-        entity_type = nearest["entity_type"].to(self.device).unsqueeze(0)  # (1, N)
-        entity_idx = nearest["entity_idx"].to(self.device).unsqueeze(0)    # (1, N)
-        corner_idx = nearest["corner_idx"].to(self.device).unsqueeze(0)    # (1, N)
-        N = entity_type.shape[1]
-        
-        # 2. Normalize outline polygon coordinates
+        # 1. Normalize outline polygon coordinates
         minx, miny, maxx, maxy = outline_polygon.bounds
         width = maxx - minx
         height = maxy - miny
@@ -161,51 +76,45 @@ class OutlineConditionedGenerator:
         outline_tensor = torch.tensor(outline_norm, dtype=torch.float32, device=self.device).unsqueeze(0)  # (1, M, 2)
         outline_mask = torch.ones(1, len(outline_norm), dtype=torch.float32, device=self.device)          # (1, M)
         
-        cond = {
-            "entity_type": entity_type,
-            "entity_idx": entity_idx,
-            "corner_idx": corner_idx,
-            "outline": outline_tensor,
-            "outline_mask": outline_mask
-        }
+        # 2. Use generate_floorplan to run reverse denoising
+        print("Denoising coordinates with generate_floorplan...")
+        layouts = generate_floorplan(
+            model=self.model,
+            diffusion=self.diffusion,
+            condition_sampler=self.condition_sampler,
+            outline=outline_tensor,
+            outline_mask=outline_mask,
+            max_corners=128
+        )
         
-        # 3. Denoise with diffusion model (sampling loop)
-        print("Denoising coordinates with HouseDiffusion...")
-        x_shape = (1, N, 2)
-        sampled_normalized = self.diffusion.p_sample_loop(self.model, x_shape, cond)  # (1, N, 2)
-        sampled_normalized = sampled_normalized.squeeze(0).cpu().numpy()              # (N, 2)
+        layout = layouts[0]
+        sampled_normalized = layout["coordinates"].cpu().numpy()  # (N_active, 2)
+        entity_type_np = layout["room_types"].cpu().numpy()       # (N_active,)
+        entity_idx_np = layout["room_ids"].cpu().numpy()          # (N_active,)
         
-        # 4. De-normalize generated coordinates back to original scale
+        # 3. De-normalize generated coordinates back to original scale
         generated_corners = []
         for cx, cy in sampled_normalized:
             gx = cx * max_size + minx
             gy = cy * max_size + miny
             generated_corners.append((gx, gy))
             
-        # 5. Reconstruct room polygons
+        # 4. Reconstruct room polygons
         rooms = {}
-        entity_idx_np = entity_idx.squeeze(0).cpu().numpy()
-        entity_type_np = entity_type.squeeze(0).cpu().numpy()
-        corner_idx_np = corner_idx.squeeze(0).cpu().numpy()
-        
-        for i in range(N):
+        for i in range(len(sampled_normalized)):
             ent_id = entity_idx_np[i]
             if ent_id not in rooms:
                 rooms[ent_id] = {
                     "coords": [],
-                    "corner_indices": [],
                     "type_idx": entity_type_np[i]
                 }
             rooms[ent_id]["coords"].append(generated_corners[i])
-            rooms[ent_id]["corner_indices"].append(corner_idx_np[i])
             
         generated_polygons = []
         for ent_id, room in rooms.items():
-            # Sort the coordinates to match the correct corner sequence
-            sorted_pts = [c for _, c in sorted(zip(room["corner_indices"], room["coords"]))]
-            if len(sorted_pts) >= 3:
+            if len(room["coords"]) >= 3:
                 try:
-                    poly = Polygon(sorted_pts)
+                    poly = Polygon(room["coords"])
                     # Check validity; if invalid, try buffer(0)
                     if not poly.is_valid:
                         poly = poly.buffer(0)
@@ -223,8 +132,6 @@ def validate(args):
     
     # Initialize Generator
     generator = OutlineConditionedGenerator(
-        csv_path=args.csv_path,
-        train_index=args.train_index,
         model_path=args.model_path,
         device=device
     )
@@ -258,7 +165,9 @@ def validate(args):
                 g = wkt.loads(row['geom'])
                 if g.geom_type in ['Polygon', 'MultiPolygon']:
                     geoms.append(g)
-                    gt_rooms.append((g, row['roomtype']))
+                    subtype_str = str(row['entity_subtype']).strip()
+                    room_name = ROOM_MAPPING.get(subtype_str, 'Livingroom')
+                    gt_rooms.append((g, room_name))
             except Exception:
                 continue
                 
@@ -287,11 +196,14 @@ def validate(args):
         ax1.axis('off')
         
         # 2. Predicted Rooms
-        pred_gdf = gpd.GeoDataFrame(
-            geometry=[r[0] for r in pred_rooms],
-            data={"roomtype": [r[1] for r in pred_rooms]}
-        )
-        pred_gdf.plot(ax=ax2, column="roomtype", legend=True, cmap='Set3', edgecolor='white', linewidth=1.5)
+        if pred_rooms:
+            pred_gdf = gpd.GeoDataFrame(
+                geometry=[r[0] for r in pred_rooms],
+                data={"roomtype": [r[1] for r in pred_rooms]}
+            )
+            pred_gdf.plot(ax=ax2, column="roomtype", legend=True, cmap='Set3', edgecolor='white', linewidth=1.5)
+        else:
+            print("Warning: No rooms generated for outline.")
         gpd.GeoDataFrame(geometry=[outline_geom]).plot(ax=ax2, facecolor='none', edgecolor='black', linewidth=2, alpha=0.4)
         ax2.set_title("Predicted Layout (HouseDiffusion)", fontsize=14, fontweight='bold')
         ax2.axis('equal')
@@ -319,7 +231,6 @@ def validate(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Validate Outline-Conditioned HouseDiffusion Model")
     parser.add_argument("--csv_path", type=str, default="mds_V2_5.372k.csv", help="Path to room geometries CSV")
-    parser.add_argument("--train_index", type=str, default="train_indices.txt", help="Path to train split index file")
     parser.add_argument("--test_index", type=str, default="test_indices.txt", help="Path to test split index file")
     parser.add_argument("--model_path", type=str, default="model_final.pth", help="Path to trained model weights")
     
