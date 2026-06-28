@@ -8,7 +8,17 @@ from shapely import wkt
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.ops import unary_union
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
+try:
+    from IPython.display import display
+except ImportError:
+    def display(*args, **kwargs):
+        for arg in args:
+            print(arg)
+
 
 pd.set_option("display.max_columns", 80)
 pd.set_option("display.max_colwidth", 120)
@@ -93,6 +103,8 @@ axes[1, 1].set_xlim(0, rooms_gdf["width_m"].quantile(.995))
 axes[1, 1].set_ylim(0, rooms_gdf["height_m"].quantile(.995))
 
 plt.tight_layout()
+plt.savefig("room_distributions.png")
+plt.close(fig)
 
 plan_bounds = rooms_gdf.groupby("plan_id")[["minx", "miny", "maxx", "maxy"]].agg({
     "minx": "min", "miny": "min", "maxx": "max", "maxy": "max"
@@ -134,6 +146,8 @@ axes[2].set_xlim(0, plan_stats["extent_width_m"].quantile(.995))
 axes[2].set_ylim(0, plan_stats["extent_height_m"].quantile(.995))
 
 plt.tight_layout()
+plt.savefig("plan_stats.png")
+plt.close(fig)
 
 room_presence = (
     rooms_gdf.assign(present=1)
@@ -189,6 +203,8 @@ ax2.axis("off")
 
 plt.suptitle(f"Training pair for plan_id={sample_plan_id}")
 plt.tight_layout()
+plt.savefig(f"sample_plan_pair_{sample_plan_id}.png")
+plt.close(fig)
 
 def plot_plan_pair(plan_id, ax_outline=None, ax_rooms=None):
     plan_rooms = get_plan_rooms(plan_id)
@@ -214,6 +230,8 @@ fig, axes = plt.subplots(len(example_plan_ids), 2, figsize=(12, 4 * len(example_
 for row, plan_id in enumerate(example_plan_ids):
     plot_plan_pair(plan_id, axes[row, 0], axes[row, 1])
 plt.tight_layout()
+plt.savefig("example_plan_pairs.png")
+plt.close(fig)
 
 from matplotlib.path import Path as MplPath
 
@@ -275,6 +293,8 @@ axes[1].set_title("Typed room mask diagnostic")
 axes[1].axis("off")
 plt.colorbar(im, ax=axes[1], fraction=.046, pad=.04)
 plt.tight_layout()
+plt.savefig(f"sample_plan_masks_{sample_plan_id}.png")
+plt.close(fig)
 
 decision_table = pd.DataFrame([
     {
@@ -480,6 +500,8 @@ ax.set_ylabel("count, log scale")
 ax.set_title("Corner-count histograms by room type")
 ax.legend(ncol=3, fontsize=8)
 plt.tight_layout()
+plt.savefig("corner_histograms.png")
+plt.close(fig)
 
 ROOMTYPE_TO_ID = {label: i + 1 for i, label in enumerate(sorted(rooms_gdf["roomtype"].unique()))}
 ID_TO_ROOMTYPE = {v: k for k, v in ROOMTYPE_TO_ID.items()}
@@ -566,6 +588,8 @@ def plot_quantized_plan(plan_id):
     by_label = dict(zip(labels, handles))
     ax.legend(by_label.values(), by_label.keys(), fontsize=7, ncol=2, loc="upper right")
     plt.tight_layout()
+    plt.savefig(f"quantized_plan_{plan_id}.png")
+    plt.close(fig)
 
 plot_quantized_plan(sample_plan_id)
 
@@ -1225,6 +1249,8 @@ def plot_prediction_gallery(plan_id, n_samples=4, top_k=96, program_k=48, temper
     handles = [Patch(facecolor=ROOMTYPE_COLORS[label], edgecolor="white", label=label) for label in present_roomtypes]
     fig.legend(handles=handles, loc="lower center", ncol=min(6, max(1, len(handles))), frameon=False)
     plt.tight_layout(rect=(0, 0.08, 1, 1))
+    plt.savefig(f"prediction_gallery_{plan_id}.png")
+    plt.close(fig)
     return predictions, scored, program_prior, program_neighbors
 
 
@@ -1268,6 +1294,8 @@ def plot_model_prediction_from_arrays(plan_id, coords_grid, roomtype_ids, corner
     fig, ax = plt.subplots(figsize=(7, 7))
     plot_room_polygons(ax, prediction_gdf, outline, title)
     plt.tight_layout()
+    plt.savefig(f"model_prediction_{plan_id}.png")
+    plt.close(fig)
     return prediction_gdf
 
 
@@ -1720,6 +1748,8 @@ def compare_scaffold_and_refined(plan_id=None, n_samples=2, neural_refinement_en
         rows.append(pd.concat([scaffold_quality, refined_quality, diagnostics]))
 
     plt.tight_layout()
+    plt.savefig(f"scaffold_vs_refined_{plan_id}.png")
+    plt.close(fig)
     comparison_df = pd.DataFrame(rows)
     display(comparison_df[[
         "scaffold_predicted_rooms",
@@ -1752,7 +1782,8 @@ else:
 
 comparison_df = compare_scaffold_and_refined(n_samples=4, neural_refinement_enabled=ENABLE_NEURAL_REFINEMENT)
 
-save_outline_denoiser_weights(trained_model, CHECKPOINT_PATH, history=training_history.to_dict("records"))
-trained_model = load_outline_denoiser(CHECKPOINT_PATH)
-checkpoint = load_outline_denoiser_weights(trained_model, CHECKPOINT_PATH)
+if trained_model is not None:
+    save_outline_denoiser_weights(trained_model, CHECKPOINT_PATH, history=training_history.to_dict("records"))
+    trained_model = load_outline_denoiser(CHECKPOINT_PATH)
+    checkpoint = load_outline_denoiser_weights(trained_model, CHECKPOINT_PATH)
 
