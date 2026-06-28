@@ -235,10 +235,6 @@ class OutlineEncoder(nn.Module):
         return self.mlp(coord_emb + pos_emb)
 
 
-# =====================================================================
-# 3. Model Architecture
-# =====================================================================
-
 class HouseDiffusionBlock(nn.Module):
     """
     A single block of the HouseDiffusion Transformer.
@@ -289,8 +285,12 @@ class HouseDiffusionBlock(nn.Module):
 
 class HouseDiffusionModel(nn.Module):
     def __init__(self, d_model=256, num_heads=8, d_ff=1024, num_cont_layers=4, num_disc_layers=2, dropout=0.1,
-                 num_room_types=32, max_corners_per_room=512, max_rooms=512, max_outline_len=128):
+                 num_room_types=32, max_corners_per_room=512, max_rooms=512, max_outline_len=128, num_layers=None):
         super().__init__()
+        if num_layers is not None:
+            num_cont_layers = max(1, int(num_layers * 2 // 3))
+            num_disc_layers = max(1, num_layers - num_cont_layers)
+            
         self.time_embed = TimestepEmbedding(d_model)
         self.outline_encoder = OutlineEncoder(d_model, max_outline_len)
         
