@@ -1,17 +1,10 @@
 import argparse
 import os
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from dataset import FloorplanDataset, collate_fn
 from house_diffusion import HouseDiffusionModel, GaussianDiffusion
-import kagglehub
-
-# Download latest version
-path = kagglehub.dataset_download("caspervanengelenburg/modified-swiss-dwellings")
-
-print("Path to dataset files:", path)
-import os
-print(os.environ.get("CUDA_VISIBLE_DEVICES"))
 
 def train(args):
     # 1. Device selection
@@ -36,14 +29,13 @@ def train(args):
     )
     
     # 3. Model instantiation
-    
     model = HouseDiffusionModel(
         d_model=args.d_model,
         num_heads=args.num_heads,
         d_ff=args.d_ff,
         num_layers=args.num_layers,
         dropout=args.dropout,
-        num_room_types=10,            # 10 unique room categories in MSD
+        num_room_types=32,            # Unique room categories in MSD (plus padding)
         max_corners_per_room=512,     # Padded room corners limit
         max_rooms=512,                # Limit on max rooms per plan
         max_outline_len=args.max_outline_len
@@ -103,7 +95,7 @@ def train(args):
             )
             
             # Mask out loss on padded corner tokens
-            loss_elementwise = F_mse_elementwise = (predicted_noise - noise) ** 2
+            loss_elementwise = (predicted_noise - noise) ** 2
             loss = (loss_elementwise.mean(dim=-1) * corner_mask).sum() / corner_mask.sum()
             
             loss.backward()
@@ -140,7 +132,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=2e-4, help="Learning rate")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
     parser.add_argument("--steps", type=int, default=1000, help="Number of diffusion timesteps")
-    parser.add_argument("--d_model", type=int, default=300, help="Transformer d_model dimension")
+    parser.add_argument("--d_model", type=int, default=256, help="Transformer d_model dimension")
     parser.add_argument("--num_heads", type=int, default=8, help="Number of attention heads")
     parser.add_argument("--d_ff", type=int, default=1024, help="Transformer FFN dimension")
     parser.add_argument("--num_layers", type=int, default=6, help="Number of Transformer block layers")
@@ -151,13 +143,10 @@ if __name__ == "__main__":
     parser.add_argument("--save_every", type=int, default=10, help="Epoch frequency to save checkpoint")
     parser.add_argument("--resume", type=str, default="", help="Path to checkpoint weights to resume from")
     
-    # Simple trick to handle command line args correctly in ipython / CLI
     import sys
-    # If running in notebooks/interactive, default arguments are used
     if len(sys.argv) == 1:
         args = parser.parse_args(args=[])
     else:
-        # Convert epochs to integer before training
         args = parser.parse_args()
     
     args.epochs = int(args.epochs)
