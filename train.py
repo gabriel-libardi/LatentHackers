@@ -91,7 +91,7 @@ def train(args):
             x_t = diffusion.q_sample(x_0, t, noise)
             
             # Model forward pass
-            predicted_noise, predicted_discrete = model(
+            predicted_noise = model(
                 x_t=x_t,
                 timesteps=t,
                 entity_type=entity_type,
@@ -106,13 +106,8 @@ def train(args):
             loss_cont_elementwise = (predicted_noise - noise) ** 2
             loss_continuous = (loss_cont_elementwise.mean(dim=-1) * corner_mask).sum() / corner_mask.sum()
             
-            # Mask out discrete coordinate loss
-            target_binary = coord_to_binary(x_0, num_bits=8)
-            loss_disc_elementwise = (predicted_discrete - target_binary) ** 2
-            loss_discrete = (loss_disc_elementwise.mean(dim=-1) * corner_mask).sum() / corner_mask.sum()
-            
             # Combined Loss
-            loss = loss_continuous + loss_discrete
+            loss = loss_continuous
             loss.backward()
             
             # Gradient clipping to prevent explosion

@@ -51,24 +51,7 @@ def train(args):
     
     if args.resume and os.path.exists(args.resume):
         print(f"Loading checkpoint from {args.resume}...")
-        state_dict = torch.load(args.resume, map_location=device)
-        model_state = model.state_dict()
-        
-        adjusted_state_dict = {}
-        for k, v in state_dict.items():
-            if k in model_state:
-                if v.shape != model_state[k].shape:
-                    print(f"Adjusting checkpoint param '{k}' from shape {v.shape} to match model shape {model_state[k].shape}...")
-                    adjusted_param = model_state[k].clone()
-                    slices = tuple(slice(0, min(s_dim, m_dim)) for s_dim, m_dim in zip(v.shape, model_state[k].shape))
-                    adjusted_param[slices] = v[slices]
-                    adjusted_state_dict[k] = adjusted_param
-                else:
-                    adjusted_state_dict[k] = v
-            else:
-                adjusted_state_dict[k] = v
-                
-        model.load_state_dict(adjusted_state_dict, strict=False)
+        model.load_state_dict(torch.load(args.resume, map_location=device))
         
     # 4. Diffusion pipeline
     diffusion = GaussianDiffusion(steps=args.steps, device=device)
@@ -109,7 +92,7 @@ def train(args):
             x_t = diffusion.q_sample(x_0, t, noise)
             
             # Model forward pass
-            predicted_noise, predicted_discrete = model(
+            predicted_noise = model(
                 x_t=x_t,
                 timesteps=t,
                 entity_type=entity_type,
@@ -124,13 +107,8 @@ def train(args):
             loss_cont_elementwise = (predicted_noise - noise) ** 2
             loss_continuous = (loss_cont_elementwise.mean(dim=-1) * corner_mask).sum() / corner_mask.sum()
             
-            # Mask out discrete coordinate loss
-            target_binary = coord_to_binary(x_0, num_bits=8)
-            loss_disc_elementwise = (predicted_discrete - target_binary) ** 2
-            loss_discrete = (loss_disc_elementwise.mean(dim=-1) * corner_mask).sum() / corner_mask.sum()
-            
             # Combined Loss
-            loss = loss_continuous + loss_discrete
+            loss = loss_continuous
             loss.backward()
             
             # Gradient clipping to prevent explosion
