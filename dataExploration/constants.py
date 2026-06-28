@@ -1,4 +1,3 @@
-from matplotlib.cm import get_cmap
 import matplotlib.colors as mcolors
 
 ## SUBTYPE MAPPINGS
@@ -79,7 +78,7 @@ COLORS_ZONING = ['#1f77b4',
                  '#d62728']
 
 COLOR_MAP_ZONING = mcolors.ListedColormap(COLORS_ZONING)
-CMAP_ZONING = get_cmap(COLOR_MAP_ZONING)
+CMAP_ZONING = COLOR_MAP_ZONING
 
 COLORS_ROOMTYPE = ['#1f77b4',
                    '#e6550d',
@@ -96,4 +95,4 @@ COLORS_ROOMTYPE = ['#1f77b4',
                    '#d62728']
 
 COLOR_MAP_ROOMTYPE = mcolors.ListedColormap(COLORS_ROOMTYPE)
-CMAP_ROOMTYPE = get_cmap(COLOR_MAP_ROOMTYPE)
+CMAP_ROOMTYPE = COLOR_MAP_ROOMTYPE
