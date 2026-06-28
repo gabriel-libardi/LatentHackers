@@ -310,8 +310,16 @@ class HouseDiffusionModel(nn.Module):
         self.disc_norm = nn.LayerNorm(d_model)
         self.out_discrete = nn.Linear(d_model, 16)
         
-    def forward(self, x_t, timesteps, entity_type, entity_idx, corner_idx, outline, alphas_cumprod_t, outline_mask=None, corner_mask=None):
+        # Register alphas_cumprod as a buffer for coordinate snapping
+        betas = torch.linspace(1e-4, 0.02, 1000)
+        alphas = 1.0 - betas
+        alphas_cumprod = torch.cumprod(alphas, dim=0)
+        self.register_buffer("alphas_cumprod", alphas_cumprod)
+        
+    def forward(self, x_t, timesteps, entity_type, entity_idx, corner_idx, outline, outline_mask=None, corner_mask=None):
         B, N, _ = x_t.shape
+        # Retrieve alphas_cumprod_t internally from buffer using timesteps
+        alphas_cumprod_t = self.alphas_cumprod[timesteps]
         time_emb = self.time_embed(timesteps)
         outline_emb = self.outline_encoder(outline)
         
