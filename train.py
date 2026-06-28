@@ -1,10 +1,17 @@
 import argparse
 import os
 import torch
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from dataset import FloorplanDataset, collate_fn
-from house_diffusion import HouseDiffusionModel, GaussianDiffusion
+from house_diffusion import HouseDiffusionModel, GaussianDiffusion, coord_to_binary
+import kagglehub
+
+# Download latest version
+path = kagglehub.dataset_download("caspervanengelenburg/modified-swiss-dwellings")
+
+print("Path to dataset files:", path)
+import os
+print(os.environ.get("CUDA_VISIBLE_DEVICES"))
 
 def train(args):
     # 1. Device selection
@@ -84,20 +91,28 @@ def train(args):
             x_t = diffusion.q_sample(x_0, t, noise)
             
             # Model forward pass
-            predicted_noise = model(
+            predicted_noise, predicted_discrete = model(
                 x_t=x_t,
                 timesteps=t,
                 entity_type=entity_type,
                 entity_idx=entity_idx,
                 corner_idx=corner_idx,
                 outline=outline,
-                outline_mask=outline_mask
+                outline_mask=outline_mask,
+                corner_mask=corner_mask
             )
             
-            # Mask out loss on padded corner tokens
-            loss_elementwise = (predicted_noise - noise) ** 2
-            loss = (loss_elementwise.mean(dim=-1) * corner_mask).sum() / corner_mask.sum()
+            # Mask out continuous loss on padded corner tokens
+            loss_cont_elementwise = (predicted_noise - noise) ** 2
+            loss_continuous = (loss_cont_elementwise.mean(dim=-1) * corner_mask).sum() / corner_mask.sum()
             
+            # Mask out discrete coordinate loss
+            target_binary = coord_to_binary(x_0, num_bits=8)
+            loss_disc_elementwise = (predicted_discrete - target_binary) ** 2
+            loss_discrete = (loss_disc_elementwise.mean(dim=-1) * corner_mask).sum() / corner_mask.sum()
+            
+            # Combined Loss
+            loss = loss_continuous + loss_discrete
             loss.backward()
             
             # Gradient clipping to prevent explosion
@@ -143,10 +158,13 @@ if __name__ == "__main__":
     parser.add_argument("--save_every", type=int, default=10, help="Epoch frequency to save checkpoint")
     parser.add_argument("--resume", type=str, default="", help="Path to checkpoint weights to resume from")
     
+    # Simple trick to handle command line args correctly in ipython / CLI
     import sys
+    # If running in notebooks/interactive, default arguments are used
     if len(sys.argv) == 1:
         args = parser.parse_args(args=[])
     else:
+        # Convert epochs to integer before training
         args = parser.parse_args()
     
     args.epochs = int(args.epochs)

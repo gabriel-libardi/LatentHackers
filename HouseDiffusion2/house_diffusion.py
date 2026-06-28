@@ -3,6 +3,29 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# Helper functions for 8-bit discrete coordinate branch
+def coord_to_binary(coords, num_bits=8):
+    """
+    Converts continuous 2D coordinates in [0, 1] to a flattened 8-bit binary representation of size 2 * num_bits.
+    """
+    coords_scaled = torch.clamp(coords * (2**num_bits - 1), 0, 2**num_bits - 1).round().long()
+    mask = 2 ** torch.arange(num_bits - 1, -1, -1, dtype=torch.long, device=coords.device)
+    mask_shape = [1] * coords_scaled.dim() + [num_bits]
+    binary = (coords_scaled.unsqueeze(-1) & mask.view(mask_shape)).gt(0).float()
+    return binary.view(*coords.shape[:-1], 2 * num_bits)
+
+def binary_to_coord(binary_logits, num_bits=8):
+    """
+    Reconstructs continuous 2D coordinates in [0, 1] from predicted 8-bit binary logits.
+    """
+    binary_shape = list(binary_logits.shape[:-1]) + [2, num_bits]
+    logits_reshaped = binary_logits.view(binary_shape)
+    probs = torch.sigmoid(logits_reshaped)
+    mask = 2 ** torch.arange(num_bits - 1, -1, -1, dtype=torch.float32, device=binary_logits.device)
+    mask_shape = [1] * (logits_reshaped.dim() - 1) + [num_bits]
+    coords_scaled = (probs * mask.view(mask_shape)).sum(dim=-1)
+    return coords_scaled / (2**num_bits - 1)
+
 # =====================================================================
 # 1. Attention Mechanisms
 # =====================================================================
@@ -130,10 +153,11 @@ class CornerEmbedding(nn.Module):
     """
     Combines the spatial coordinates of room corners with entity category,
     corner indices, entity instance IDs, and timestep embeddings.
+    Integrates Corner Augmentation (AU) by sampling points along wall segments.
     """
     def __init__(self, d_model, num_room_types=32, max_corners_per_room=512, max_rooms=512):
         super().__init__()
-        self.coord_proj = nn.Linear(2, d_model)
+        self.coord_proj = nn.Linear(18, d_model)  # Projected from augmented coordinate of size 18 (2 + 8 * 2)
         self.room_type_emb = nn.Embedding(num_room_types, d_model)
         self.corner_idx_emb = nn.Embedding(max_corners_per_room, d_model)
         self.room_idx_emb = nn.Embedding(max_rooms, d_model)
@@ -144,13 +168,35 @@ class CornerEmbedding(nn.Module):
         # entity_idx: (B, N) -> instance ID (separates room instances)
         # corner_idx: (B, N) -> index of the corner within its polygon
         # time_emb: (B, d_model)
+        B, N, _ = x_t.shape
         
-        # Clamp index inputs to prevent out-of-range indexing errors
+        # 1. Corner Augmentation (AU): sample 8 points along the segment connecting x_t to the next corner
+        same_room = (entity_idx.unsqueeze(2) == entity_idx.unsqueeze(1))  # (B, N, N)
+        is_next = (corner_idx.unsqueeze(2) == (corner_idx.unsqueeze(1) + 1))  # (B, N, N)
+        is_wrap = (corner_idx.unsqueeze(2) == 0)  # (B, N, N)
+        
+        match_next = same_room & is_next
+        match_wrap = same_room & is_wrap
+        
+        has_next = match_next.any(dim=-1, keepdim=True)  # (B, N, 1)
+        transition = torch.where(has_next, match_next.float(), match_wrap.float())
+        
+        x_next = torch.matmul(transition, x_t)  # (B, N, 2)
+        
+        # Sample 8 points along the segment connecting x_t and x_next
+        lambdas = torch.linspace(0.0, 1.0, 8, device=x_t.device).view(1, 1, 8, 1)
+        sampled_pts = (1.0 - lambdas) * x_t.unsqueeze(2) + lambdas * x_next.unsqueeze(2)  # (B, N, 8, 2)
+        sampled_pts_flat = sampled_pts.view(B, N, 16)
+        
+        # Concatenate original coordinates and segment points
+        x_augmented = torch.cat([x_t, sampled_pts_flat], dim=-1)  # (B, N, 18)
+        
+        # 2. Embed indices
         entity_type = torch.clamp(entity_type, 0, self.room_type_emb.num_embeddings - 1)
         entity_idx = torch.clamp(entity_idx, 0, self.room_idx_emb.num_embeddings - 1)
         corner_idx = torch.clamp(corner_idx, 0, self.corner_idx_emb.num_embeddings - 1)
         
-        emb = self.coord_proj(x_t)
+        emb = self.coord_proj(x_augmented)
         emb = emb + self.room_type_emb(entity_type)
         emb = emb + self.corner_idx_emb(corner_idx)
         emb = emb + self.room_idx_emb(entity_idx)
@@ -216,13 +262,13 @@ class HouseDiffusionBlock(nn.Module):
         self.gsa_dropout = nn.Dropout(dropout)
         self.cross_dropout = nn.Dropout(dropout)
         
-    def forward(self, x, outline_emb, csa_mask=None, outline_mask=None):
+    def forward(self, x, outline_emb, csa_mask=None, gsa_mask=None, outline_mask=None):
         # 1. Component-wise Self-Attention (CSA): limit interactions to corners of the same room
         csa_out = self.csa_layer(self.csa_norm(x), mask=csa_mask)
         x = x + self.csa_dropout(csa_out)
         
         # 2. Global Self-Attention (GSA): global interaction between rooms
-        gsa_out = self.gsa_layer(self.gsa_norm(x), mask=None)
+        gsa_out = self.gsa_layer(self.gsa_norm(x), mask=gsa_mask)
         x = x + self.gsa_dropout(gsa_out)
         
         # 3. Outline Cross-Attention: align room geometries with the apartment boundaries
@@ -254,9 +300,10 @@ class HouseDiffusionModel(nn.Module):
         ])
         
         self.out_norm = nn.LayerNorm(d_model)
-        self.out_proj = nn.Linear(d_model, 2)  # Outputs 2D noise / coordinates
+        self.out_proj = nn.Linear(d_model, 2)       # Predicts 2D noise / coordinates
+        self.out_discrete = nn.Linear(d_model, 16)  # Predicts 8-bit binary representation of coordinates
         
-    def forward(self, x_t, timesteps, entity_type, entity_idx, corner_idx, outline, outline_mask=None):
+    def forward(self, x_t, timesteps, entity_type, entity_idx, corner_idx, outline, outline_mask=None, corner_mask=None):
         """
         Args:
             x_t: (B, N, 2) Noisy room/door corner coordinates
@@ -266,6 +313,7 @@ class HouseDiffusionModel(nn.Module):
             corner_idx: (B, N) Indices of corners within room polygons
             outline: (B, M, 2) outer outline coordinates
             outline_mask: (B, M) Binary mask representing valid outline vertices (1 for active, 0 for padded)
+            corner_mask: (B, N) Binary mask representing valid room corner tokens (1 for active, 0 for padded)
         """
         B, N, _ = x_t.shape
         
@@ -282,21 +330,30 @@ class HouseDiffusionModel(nn.Module):
         # csa_mask[b, i, j] = 1 if entity_idx[b, i] == entity_idx[b, j] else 0
         csa_mask = (entity_idx.unsqueeze(2) == entity_idx.unsqueeze(1)).float()  # (B, N, N)
         
-        # 5. Build cross-attention boundary mask
+        # 5. Build GSA and token masking
+        gsa_mask = None
+        if corner_mask is not None:
+            # Build valid pair mask of shape (B, N, N)
+            valid_mask = (corner_mask.unsqueeze(2) * corner_mask.unsqueeze(1)).float()
+            csa_mask = csa_mask * valid_mask
+            gsa_mask = valid_mask
+            
+        # 6. Build cross-attention boundary mask
         cross_attn_mask = None
         if outline_mask is not None:
             # Shape: (B, N, M)
             cross_attn_mask = outline_mask.unsqueeze(1).repeat(1, N, 1)
             
-        # 6. Pass through Transformer blocks
+        # 7. Pass through Transformer blocks
         for block in self.blocks:
-            x = block(x, outline_emb, csa_mask=csa_mask, outline_mask=cross_attn_mask)
+            x = block(x, outline_emb, csa_mask=csa_mask, gsa_mask=gsa_mask, outline_mask=cross_attn_mask)
             
-        # 7. Project features back to 2D space
+        # 8. Project features back to output spaces
         x = self.out_norm(x)
-        out = self.out_proj(x)  # (B, N, 2)
+        out_continuous = self.out_proj(x)       # (B, N, 2)
+        out_discrete = self.out_discrete(x)     # (B, N, 16)
         
-        return out
+        return out_continuous, out_discrete
 
 
 # =====================================================================
@@ -337,13 +394,7 @@ class GaussianDiffusion:
         
     def p_losses(self, model, x_0, t, cond, noise=None):
         """
-        Compute mean squared error loss between model predictions and target noise.
-        cond is a dictionary containing:
-        - entity_type
-        - entity_idx
-        - corner_idx
-        - outline
-        - outline_mask
+        Compute continuous MSE loss (noise prediction) and discrete MSE loss (8-bit coordinate prediction).
         """
         if noise is None:
             noise = torch.randn_like(x_0)
@@ -351,44 +402,64 @@ class GaussianDiffusion:
         # Forward pass: create noisy sample
         x_t = self.q_sample(x_0, t, noise)
         
-        # Predict the noise using the outline-conditioned model
-        predicted_noise = model(
+        # Predict the noise and discrete coordinates using model
+        predicted_noise, predicted_discrete = model(
             x_t=x_t,
             timesteps=t,
             entity_type=cond["entity_type"],
             entity_idx=cond["entity_idx"],
             corner_idx=cond["corner_idx"],
             outline=cond["outline"],
-            outline_mask=cond.get("outline_mask", None)
+            outline_mask=cond.get("outline_mask", None),
+            corner_mask=cond.get("corner_mask", None)
         )
         
-        return F.mse_loss(predicted_noise, noise)
+        # Continuous loss
+        loss_continuous = F.mse_loss(predicted_noise, noise)
+        
+        # Discrete loss: target is 8-bit binary representation of coordinates
+        target_binary = coord_to_binary(x_0, num_bits=8)
+        loss_discrete = F.mse_loss(predicted_discrete, target_binary)
+        
+        return loss_continuous + loss_discrete
         
     @torch.no_grad()
-    def p_sample(self, model, x, t, cond):
+    def p_sample(self, model, x, t, cond, snapping_threshold=32):
         """
         Perform a single reverse step to denoise x_t into x_{t-1}.
+        If t < snapping_threshold, we use discrete snapping to align coordinates.
         """
         # Obtain alphas and betas for current timestep
         beta_t = self.betas[t].view(-1, 1, 1)
-        sqrt_one_minus_alphas_cumprod_t = self.sqrt_one_minus_alphas_cumprod[t].view(-1, 1, 1)
+        alphas_cumprod_t = self.alphas_cumprod[t].view(-1, 1, 1)
+        alphas_cumprod_prev_t = self.alphas_cumprod_prev[t].view(-1, 1, 1)
         alpha_t = self.alphas[t].view(-1, 1, 1)
         
-        # Predict noise
-        predicted_noise = model(
+        # Predict noise and discrete coordinates
+        predicted_noise, predicted_discrete = model(
             x_t=x,
             timesteps=t,
             entity_type=cond["entity_type"],
             entity_idx=cond["entity_idx"],
             corner_idx=cond["corner_idx"],
             outline=cond["outline"],
-            outline_mask=cond.get("outline_mask", None)
+            outline_mask=cond.get("outline_mask", None),
+            corner_mask=cond.get("corner_mask", None)
         )
         
-        # Compute mean
-        mean = (1.0 / torch.sqrt(alpha_t)) * (x - (beta_t / sqrt_one_minus_alphas_cumprod_t) * predicted_noise)
-        
-        
+        # Snap coordinates if timestep is below threshold
+        if t[0] < snapping_threshold:
+            # Snap: reconstruct coordinates from binary representation
+            x_0_pred = binary_to_coord(predicted_discrete, num_bits=8)
+            # Posterior mean
+            coeff_x_0 = torch.sqrt(alphas_cumprod_prev_t) * beta_t / (1.0 - alphas_cumprod_t)
+            coeff_x_t = torch.sqrt(alpha_t) * (1.0 - alphas_cumprod_prev_t) / (1.0 - alphas_cumprod_t)
+            mean = coeff_x_0 * x_0_pred + coeff_x_t * x
+        else:
+            # Standard continuous step
+            sqrt_one_minus_alphas_cumprod_t = self.sqrt_one_minus_alphas_cumprod[t].view(-1, 1, 1)
+            mean = (1.0 / torch.sqrt(alpha_t)) * (x - (beta_t / sqrt_one_minus_alphas_cumprod_t) * predicted_noise)
+            
         if t[0] == 0:
             return mean
         else:
@@ -397,10 +468,9 @@ class GaussianDiffusion:
             return mean + torch.sqrt(variance) * noise
             
     @torch.no_grad()
-    def p_sample_loop(self, model, shape, cond):
+    def p_sample_loop(self, model, shape, cond, snapping_threshold=32):
         """
         Complete reverse process loop to generate vector floorplan corners from pure noise.
-        shape: (B, N, 2)
         """
         B = shape[0]
         # Start from isotropic Gaussian noise
@@ -408,6 +478,6 @@ class GaussianDiffusion:
         
         for i in reversed(range(self.steps)):
             t = torch.full((B,), i, dtype=torch.long, device=self.device)
-            x = self.p_sample(model, x, t, cond)
+            x = self.p_sample(model, x, t, cond, snapping_threshold=snapping_threshold)
             
         return x

@@ -9,7 +9,7 @@ from shapely.geometry import Polygon, MultiPolygon
 import matplotlib.pyplot as plt
 import numpy as np
 
-from dataset import FloorplanDataset, ROOM_TYPES, ROOM_TYPE_TO_IDX
+from dataset import FloorplanDataset, ROOM_TYPES, ROOM_TYPE_TO_IDX, ROOM_MAPPING
 from house_diffusion import HouseDiffusionModel, GaussianDiffusion
 
 class OutlineConditionedGenerator:
@@ -76,14 +76,13 @@ class OutlineConditionedGenerator:
         self.model.eval()
         self.diffusion = GaussianDiffusion(steps=1000, device=self.device)
         
-    def find_nearest_layout(self, query_outline_geom):
+    def find_nearest_layout(self, query_outline_geom, probabilistic=True, top_k=10):
         """
         Finds the training outline most similar to the query outline in area and shape
         using centroid-aligned Intersection over Union (IoU).
+        If probabilistic is True, randomly samples from the top_k best matches to serve as
+        a probabilistic prior for the room configuration.
         """
-        best_iou = -1.0
-        best_match = None
-        
         query_area = query_outline_geom.area
         query_centroid = query_outline_geom.centroid
         
@@ -96,6 +95,7 @@ class OutlineConditionedGenerator:
         if not candidate_matches:
             candidate_matches = self.train_outlines
             
+        matches = []
         for candidate in candidate_matches:
             train_geom = candidate["geom"]
             
@@ -112,20 +112,32 @@ class OutlineConditionedGenerator:
             except Exception:
                 iou = 0.0
                 
-            if iou > best_iou:
-                best_iou = iou
-                best_match = candidate
-                
-        return best_match
+            matches.append((iou, candidate))
+            
+        # Sort by IoU in descending order
+        matches.sort(key=lambda x: x[0], reverse=True)
+        
+        if not matches:
+            return None
+            
+        if probabilistic:
+            # Sample from the top K matches
+            k = min(top_k, len(matches))
+            top_candidates = matches[:k]
+            # Randomly select one
+            selected_idx = np.random.randint(0, k)
+            return top_candidates[selected_idx][1]
+        else:
+            return matches[0][1]
 
-    def generate(self, outline_polygon):
+    def generate(self, outline_polygon, probabilistic=True, top_k=10):
         """
         Main entry point for generating room partitions given a bare apartment outline.
         Returns:
             List of tuples: (shapely.geometry.Polygon, room_type_name)
         """
         # 1. Retrieve the best matching room configuration layout
-        nearest = self.find_nearest_layout(outline_polygon)
+        nearest = self.find_nearest_layout(outline_polygon, probabilistic=probabilistic, top_k=top_k)
         if nearest is None:
             raise ValueError("No matching layout configuration found in the training database.")
             
@@ -166,7 +178,8 @@ class OutlineConditionedGenerator:
             "entity_idx": entity_idx,
             "corner_idx": corner_idx,
             "outline": outline_tensor,
-            "outline_mask": outline_mask
+            "outline_mask": outline_mask,
+            "corner_mask": torch.ones_like(entity_type)
         }
         
         # 3. Denoise with diffusion model (sampling loop)
@@ -258,7 +271,9 @@ def validate(args):
                 g = wkt.loads(row['geom'])
                 if g.geom_type in ['Polygon', 'MultiPolygon']:
                     geoms.append(g)
-                    gt_rooms.append((g, row['roomtype']))
+                    subtype_str = str(row['entity_subtype']).strip()
+                    room_name = ROOM_MAPPING.get(subtype_str, 'Livingroom')
+                    gt_rooms.append((g, room_name))
             except Exception:
                 continue
                 
