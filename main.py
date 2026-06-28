@@ -833,7 +833,7 @@ from matplotlib.patches import Patch
 
 
 ROOMTYPE_COLORS = {
-    roomtype: plt.get_cmap("tab20")(idx % 20)
+    roomtype: matplotlib.colormaps["tab20"](idx % 20)
     for idx, roomtype in enumerate(sorted(rooms_gdf["roomtype"].dropna().unique()))
 }
 ROOMTYPE_ORDER = sorted(ROOMTYPE_TO_ID)
