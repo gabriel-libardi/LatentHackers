@@ -69,7 +69,25 @@ class OutlineConditionedGenerator:
         
         if os.path.exists(model_path):
             print(f"Loading model weights from {model_path}...")
-            self.model.load_state_dict(torch.load(model_path, map_location=self.device))
+            state_dict = torch.load(model_path, map_location=self.device)
+            model_state = self.model.state_dict()
+            
+            # Resolve embedding/parameter shape mismatches dynamically
+            adjusted_state_dict = {}
+            for k, v in state_dict.items():
+                if k in model_state:
+                    if v.shape != model_state[k].shape:
+                        print(f"Adjusting checkpoint param '{k}' from shape {v.shape} to match model shape {model_state[k].shape}...")
+                        adjusted_param = model_state[k].clone()
+                        slices = tuple(slice(0, min(s_dim, m_dim)) for s_dim, m_dim in zip(v.shape, model_state[k].shape))
+                        adjusted_param[slices] = v[slices]
+                        adjusted_state_dict[k] = adjusted_param
+                    else:
+                        adjusted_state_dict[k] = v
+                else:
+                    adjusted_state_dict[k] = v
+                    
+            self.model.load_state_dict(adjusted_state_dict, strict=False)
         else:
             print(f"Warning: Model weights path '{model_path}' not found! Running with randomized weights.")
             

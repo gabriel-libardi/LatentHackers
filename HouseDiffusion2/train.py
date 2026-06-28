@@ -51,7 +51,24 @@ def train(args):
     
     if args.resume and os.path.exists(args.resume):
         print(f"Loading checkpoint from {args.resume}...")
-        model.load_state_dict(torch.load(args.resume, map_location=device))
+        state_dict = torch.load(args.resume, map_location=device)
+        model_state = model.state_dict()
+        
+        adjusted_state_dict = {}
+        for k, v in state_dict.items():
+            if k in model_state:
+                if v.shape != model_state[k].shape:
+                    print(f"Adjusting checkpoint param '{k}' from shape {v.shape} to match model shape {model_state[k].shape}...")
+                    adjusted_param = model_state[k].clone()
+                    slices = tuple(slice(0, min(s_dim, m_dim)) for s_dim, m_dim in zip(v.shape, model_state[k].shape))
+                    adjusted_param[slices] = v[slices]
+                    adjusted_state_dict[k] = adjusted_param
+                else:
+                    adjusted_state_dict[k] = v
+            else:
+                adjusted_state_dict[k] = v
+                
+        model.load_state_dict(adjusted_state_dict, strict=False)
         
     # 4. Diffusion pipeline
     diffusion = GaussianDiffusion(steps=args.steps, device=device)
