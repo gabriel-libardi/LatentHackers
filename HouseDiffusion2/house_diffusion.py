@@ -234,7 +234,6 @@ class OutlineEncoder(nn.Module):
         
         return self.mlp(coord_emb + pos_emb)
 
-
 class HouseDiffusionBlock(nn.Module):
     """
     A single block of the HouseDiffusion Transformer.
