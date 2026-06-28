@@ -1,0 +1,95 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "c9ffe53f2ecc",
+  "session_id": "019f09fe-83b0-7b40-aa1e-23ddecb53637",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-28T09:35:03.730254Z",
+  "branch": "main",
+  "checkpoints_count": 4,
+  "save_step_count": 5,
+  "files_touched": [
+    "dataExploration/data_exploration.ipynb"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "0e33036579f1",
+  "token_usage": {
+    "input_tokens": 1576814,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 47033856,
+    "output_tokens": 221439,
+    "api_call_count": 374
+  },
+  "session_metrics": {
+    "turn_count": 25
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-28T09:35:03.600774Z",
+    "agent_lines": 1815,
+    "agent_removed": 0,
+    "human_added": 4375,
+    "human_modified": 213,
+    "human_removed": 0,
+    "total_committed": 6274,
+    "total_lines_changed": 6403,
+    "agent_percentage": 28.346087771357176,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 2180481,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "main.ipynb": 6787,
+        "mds_V2_5.372k copy.csv": 1086847,
+        "mds_V2_5.372k.csv": 1086847
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 1086895,
+      "user_lines_removed": 121,
+      "agent_lines_added": 706,
+      "agent_lines_removed": 291,
+      "user_added_per_file": {
+        "dataExploration/data_exploration.ipynb": 41,
+        "main.ipynb": 7,
+        "mds_V2_5.372k.csv": 1086847
+      },
+      "user_removed_per_file": {
+        "dataExploration/data_exploration.ipynb": 29,
+        "main.ipynb": 92
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 1091596,
+      "user_lines_removed": 55,
+      "agent_lines_added": 647,
+      "agent_lines_removed": 305,
+      "user_added_per_file": {
+        "artifacts/dataset_metrics/per_plan_model_metrics.csv": 251,
+        "dataExploration/data_exploration.ipynb": 4498,
+        "mds_V2_5.372k.csv": 1086847
+      },
+      "user_removed_per_file": {
+        "dataExploration/data_exploration.ipynb": 55
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 1087362,
+      "user_lines_removed": 0,
+      "agent_lines_added": 5117,
+      "agent_lines_removed": 332,
+      "user_added_per_file": {
+        "artifacts/dataset_metrics/per_plan_model_metrics.csv": 251,
+        "environment.full.yml": 264,
+        "mds_V2_5.372k.csv": 1086847
+      }
+    }
+  ]
+}

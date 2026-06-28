@@ -1,0 +1,1261 @@
+hello
+
+---
+
+I’m working on the floor-plan generation challenge described in `brief.pdf`.
+
+The goal is to generate typed room polygons from only the apartment outline, using diffusion or flow matching. The data is in `mds_V2_5.372k.csv`, with WKT geometries in `geom` and rooms selected using `entity_type == "area"`.
+
+Please start by inspecting the repository, dataset columns, geometry types, room labels, and installed libraries. Don’t assume column names without checking.
+
+For the first baseline, I want to:
+
+* build the apartment outline with the provided 0.3 m buffer–union–buffer method;
+* normalize each plan and save the inverse transform;
+* sample boundary points from the outline;
+* encode them with a simple PointNet;
+* represent rooms as padded tokens containing presence, type, centroid, width, and height.
+
+For now, focus only on the data pipeline and PointNet encoder. Add a visualization script, deterministic train/validation/test splits by `plan_id`, basic tests, and useful dataset statistics.
+
+Before changing files, briefly tell me what you found and what you plan to implement. Don’t start training yet.
+
+---
+
+you should use the ehl conda env and download the needed libraries with pip
+
+---
+
+explain all that we have
+
+---
+
+I need to keep the original train/test split
+
+---
+
+The data pipeline and PointNet encoder are already working. Please inspect the current repository first and then finish the end-to-end baseline.
+
+Keep the existing dataset format, official train/test split, room tokens, normalization, and seed 42.
+
+Build the remaining pieces:
+
+* a conditional flow-matching model over padded room tokens;
+* time embeddings and conditioning on the PointNet outline embedding;
+* masking so padded rooms do not affect the loss;
+* auxiliary losses for room presence and room type;
+* a training script with checkpoints, logging, validation loss, and resume support;
+* a sampler that integrates the learned flow from noise to room tokens;
+* decoding from normalized room tokens back into typed Shapely polygons;
+* clipping, overlap removal, gap filling, invalid-geometry repair, and inverse normalization;
+* a `generate(outline)` entry point returning typed vector polygons;
+* visualization of several generated samples for the same outline;
+* simple local evaluation for room count, type distribution, outline coverage, overlap, and validity;
+* tests for model shapes, masked loss, deterministic sampling, decoding, and geometry repair.
+
+Use a small Transformer baseline first. Keep the code modular and do not overcomplicate the architecture.
+
+Please proceed in this order:
+
+1. Inspect the existing code and summarize what is already available.
+2. Propose the files you will add or modify.
+3. Implement the model, losses, training loop, sampler, decoder, repair pipeline, and generation entry point.
+4. Run the unit tests.
+5. Run a short smoke-training job on a small subset to verify that loss decreases and sampling works.
+6. Generate and save a few example layouts.
+7. Report the commands run, files changed, test results, known limitations, and the exact command for a full training run.
+
+Do not run a long full-dataset training job without asking me first. Do not change the original test split, create a validation set from the train set.
+
+---
+
+Please inspect the current implementation and improve the baseline rather than rewriting it from scratch.
+
+The pipeline already works end to end, but I want you to address these issues:
+
+Replace the simple axis-aligned rectangle representation with a more expressive room representation, ideally fixed-length polygon vertices or another vector representation that can model irregular and concave rooms.
+Reduce the risk that postprocessing hides poor model predictions. Report metrics both before and after repair.
+Improve gap filling so uncovered regions are assigned to sensible neighboring rooms instead of always becoming Structure.
+Separate continuous geometry prediction from room presence and room type as much as possible, instead of treating everything as continuous flow variables.
+Inspect the room-count distribution and choose a more reasonable max_rooms based on a percentile such as the 99th percentile, while clearly reporting how many plans would be truncated.
+Improve decoding and repair so outputs remain valid, non-overlapping, inside the outline, and cover it well.
+Add checks for diversity across multiple samples from the same outline and for whether the model actually responds to different outlines.
+
+Also add visible progress reporting to the scripts
+
+---
+
+how are you extracting the floor coordinates? and what part of the data do we take as input?
+
+---
+
+what is the smoke data?
+
+---
+
+train_flow.py is not showing progress
+
+---
+
+explain in detail how train_flow.py works
+
+---
+
+implement the evaluation with Two metrics: FID and density and coverage. FID rewards realism; density and coverage reward covering the
+true variety of layouts and penalise mode collapse or copying the data. Scoring is run by the organisers on a
+held-out set of plans, with a fixed protocol (reference set, rasterisation, sample count, and seed 42), so numbers
+are comparable across teams. Visualize some of the best examples, some of the medium and some of the worst. Also show the distribution of metrics
+
+---
+
+The current pipeline trains and samples correctly, but the generated layouts are still fragmented, blob-like, and heavily dependent on postprocessing. Please inspect the existing code and improve the architecture and representation rather than just increasing model size.
+
+Main issues to investigate:
+
+* The outline is compressed into one global PointNet vector, which may lose local boundary structure.
+* Rooms are generated as unconstrained polygon vertices, causing overlaps, gaps, disconnected pieces, and jagged walls.
+* Fixed room ordering and polygon vertex ordering may be ambiguous.
+* The repair stage may be hiding poor raw predictions.
+* The current “best sample” score does not strongly measure architectural plausibility.
+* Validation noise may not be fixed across epochs.
+
+Please address these incrementally.
+
+First, verify:
+
+* room tokens, masks, types, and polygon targets use exactly the same room ordering;
+* polygons have consistent clockwise/counterclockwise orientation;
+* each polygon has a deterministic starting vertex;
+* vertex resampling is deterministic;
+* validation uses fixed noise and fixed times every epoch.
+
+Then improve the conditioning:
+
+* replace the global-only PointNet condition with ordered boundary tokens;
+* encode the boundary using a small Transformer or 1D network;
+* keep the individual boundary features;
+* let room tokens cross-attend to the boundary tokens;
+* optionally retain a global pooled outline embedding.
+
+Next, improve the room generation model:
+
+* use learned room queries with a Transformer decoder;
+* predict room presence, room type, and continuous geometry separately;
+* consider Hungarian matching so the model does not depend on arbitrary room ordering;
+* keep flow matching for continuous geometry;
+* use classification losses for presence and room type.
+
+For geometry, compare two practical approaches:
+
+1. A canonical fixed-vertex polygon representation with strict ordering and additional geometric losses.
+2. A partition-aware representation such as clipped weighted Voronoi/power diagrams using generated room sites, weights, types, and presence.
+
+Prefer the smallest approach that produces clean vector partitions. Do not keep unconstrained polygons if repair continues to create patchwork layouts.
+
+Add losses or metrics for:
+
+* overlap;
+* uncovered area;
+* area error;
+* centroid error;
+* disconnected room components;
+* tiny fragments and slivers;
+* perimeter-to-area ratio;
+* orthogonality of walls;
+* amount of geometry changed during repair;
+* room-count error.
+
+Update evaluation so it saves:
+
+```text
+real | raw generation | repaired generation
+```
+
+Use fixed colors for room types and report raw and repaired metrics separately.
+
+Do not call samples “best” using only nearest-feature distance, coverage, and overlap. Rename that metric or replace it with a diagnostic score that also penalizes fragmentation, excessive repair, disconnected rooms, slivers, and room-count error.
+
+After the representation is improved, increase the model moderately, for example:
+
+```text
+d_model: 256
+heads: 8
+encoder layers: 4
+decoder layers: 4–6
+ffn dimension: 1024
+```
+
+Do not run a long experiment yet.
+
+Please:
+
+1. inspect the current implementation;
+2. explain the root causes you find;
+3. propose the smallest useful changes;
+4. implement them;
+5. add tests;
+6. run a small smoke-training experiment;
+7. generate several examples;
+8. compare the old and new raw/repaired metrics and visual outputs;
+9. report remaining limitations and the recommended full-training command.
+
+Preserve the official train/test split, create validation only from training data, keep seed 42, and keep progress bars in all long-running scripts.
+
+---
+
+(ehl) federicomendez@MacBook-Air-de-Federico LatentHackers % python scripts/train_flow.py \ 
+    --prepared-dir outputs/prepared \
+    --output-dir outputs/flow_baseline \
+    --epochs 100 \
+    --batch-size 8 \
+    --lr 0.0001 \
+    --d-model 256 \
+    --nhead 8 \
+    --encoder-layers 4 \
+    --decoder-layers 4 \
+    --ffn-dim 1024 \
+    --cond-dim 256 \
+    --seed 42 \
+    --progress-every 25
+{"device": "mps", "epochs": 100, "start_epoch": 0, "train_batches": 515, "train_items": 4118, "val_batches": 57, "val_items": 454}
+epoch 0/99: begin
+train epoch 0: starting 515 batches
+train epoch 0: batch 25/515 loss=5.2296 flow=4.6534 presence=0.5493 type=2.3314                                       
+train epoch 0: batch 50/515 loss=4.3889 flow=3.8268 presence=0.5481 type=2.2628                                       
+train epoch 0: batch 75/515 loss=4.0402 flow=3.4873 presence=0.5514 type=2.2133                                       
+train epoch 0: batch 100/515 loss=3.8412 flow=3.2936 presence=0.5527 type=2.1855                                      
+train epoch 0: batch 125/515 loss=3.7150 flow=3.1712 presence=0.5479 type=2.1712                                      
+train epoch 0: batch 150/515 loss=3.5914 flow=3.0511 presence=0.5430 type=2.1582                                      
+train epoch 0: batch 175/515 loss=3.5384 flow=3.0002 presence=0.5406 type=2.1506                                      
+train epoch 0: batch 200/515 loss=3.5145 flow=2.9773 presence=0.5423 type=2.1434                                      
+train epoch 0: batch 225/515 loss=3.4566 flow=2.9207 presence=0.5430 type=2.1365                                      
+train epoch 0: batch 250/515 loss=3.4253 flow=2.8908 presence=0.5412 type=2.1314                                      
+train epoch 0: batch 275/515 loss=3.3765 flow=2.8430 presence=0.5406 type=2.1266                                      
+train epoch 0: batch 300/515 loss=3.3230 flow=2.7904 presence=0.5391 type=2.1240                                      
+train epoch 0: batch 325/515 loss=3.2952 flow=2.7631 presence=0.5392 type=2.1213                                      
+train epoch 0: batch 350/515 loss=3.2660 flow=2.7346 presence=0.5386 type=2.1186                                      
+train epoch 0: batch 375/515 loss=3.2374 flow=2.7067 presence=0.5373 type=2.1163                                      
+train epoch 0: batch 400/515 loss=3.2175 flow=2.6875 presence=0.5368 type=2.1130                                      
+train epoch 0: batch 425/515 loss=3.1999 flow=2.6708 presence=0.5358 type=2.1097                                      
+train epoch 0: batch 450/515 loss=3.1782 flow=2.6497 presence=0.5350 type=2.1075                                      
+train epoch 0: batch 475/515 loss=3.1573 flow=2.6293 presence=0.5353 type=2.1050                                      
+train epoch 0: batch 500/515 loss=3.1312 flow=2.6033 presence=0.5360 type=2.1034                                      
+train epoch 0: batch 515/515 loss=3.1238 flow=2.5962 presence=0.5358 type=2.1023                                      
+train epoch 0: 100%|███████████████████████████████████| 515/515 [00:55<00:00,  9.20batch/s, flow=2.2527, loss=2.7652]
+train epoch 0: finished {"flow_loss": 2.596191226510168, "loss": 3.1238148494831566, "presence_loss": 0.5358040561375109, "type_loss": 2.1023140629518378}
+val epoch 0: starting 57 batches
+val epoch 0: batch 25/57 loss=2.6527 flow=2.1489 presence=0.4974 type=2.0218                                          
+val epoch 0: batch 50/57 loss=2.7006 flow=2.1883 presence=0.5202 type=2.0415                                          
+val epoch 0: batch 57/57 loss=2.7124 flow=2.1991 presence=0.5248 type=2.0418                                          
+val epoch 0: 100%|███████████████████████████████████████| 57/57 [00:01<00:00, 31.37batch/s, flow=3.0223, loss=3.5536]
+val epoch 0: finished {"flow_loss": 2.199102058745267, "loss": 2.712418951486286, "presence_loss": 0.5247904067499596, "type_loss": 2.0417939299031307}
+{"epoch": 0, "train": {"flow_loss": 2.596191226510168, "loss": 3.1238148494831566, "presence_loss": 0.5358040561375109, "type_loss": 2.1023140629518378}, "val": {"flow_loss": 2.199102058745267, "loss": 2.712418951486286, "presence_loss": 0.5247904067499596, "type_loss": 2.0417939299031307}}
+epoch 1/99: begin
+train epoch 1: starting 515 batches
+train epoch 1: batch 25/515 loss=2.7194 flow=2.2056 presence=0.5023 type=2.0667                                       
+train epoch 1: batch 50/515 loss=2.7210 flow=2.2062 presence=0.5134 type=2.0609                                       
+train epoch 1: batch 75/515 loss=2.7660 flow=2.2521 presence=0.5126 type=2.0566                                       
+train epoch 1: batch 100/515 loss=2.7876 flow=2.2748 presence=0.5101 type=2.0541                                      
+train epoch 1: batch 125/515 loss=2.7836 flow=2.2704 presence=0.5120 type=2.0539  it seems like it's overfitting
+
+---
+
+what is presence?
+
+---
+
+why does it go down while training?
+
+---
+
+explain the calculation of the loss
+
+---
+
+The new power-diagram model fixes the old geometry problems: outputs cover the outline, have almost no overlap, and raw/repaired layouts are nearly identical.
+
+The main remaining issues are:
+
+* too many active room cells;
+* many tiny/sliver cells;
+* one room type dominates;
+* unrealistic room sizes;
+* weak corridor and adjacency structure.
+
+Please improve the current implementation without replacing the power-diagram representation yet.
+
+Tasks:
+
+1. Diagnose room presence:
+
+   * report real vs generated room-count distributions;
+   * inspect presence probabilities;
+   * verify inactive/padded queries cannot create cells.
+
+2. Improve room-count control:
+
+   * add an outline-conditioned room-count head;
+   * during sampling, predict `k` and keep the top-`k` presence queries;
+   * keep threshold sampling as an alternative;
+   * sweep thresholds `0.3, 0.5, 0.7, 0.8, 0.9` on validation data.
+
+3. Fix room-type collapse:
+
+   * compare real and generated type histograms;
+   * check type-ID mappings and padding handling;
+   * use class-weighted cross-entropy computed only from training data.
+
+4. Reduce tiny cells:
+
+   * predict normalized room area;
+   * add an area loss;
+   * use predicted areas to influence power-diagram weights;
+   * report tiny-cell fractions below 0.5%, 1%, and 2% of outline area.
+
+5. Improve evaluation:
+
+   * report room-count error, tiny-cell fraction, type-distribution error, coverage, overlap, and repair fraction;
+   * update the diagnostic score to penalize excessive cells and tiny fragments;
+   * save `real | raw | repaired` plots with room counts and metrics in the title.
+
+6. Add tests for:
+
+   * exact top-`k` selection;
+   * no cells for inactive queries;
+   * correct room-count targets;
+   * correct type mappings;
+   * deterministic validation.
+
+Run only:
+
+* unit tests;
+* a tiny overfit test;
+* a short run on 256–512 plans;
+* comparisons of threshold, fixed top-`k`, and predicted-count top-`k`.
+
+Report root causes, files changed, before/after metrics, remaining limitations, and recommended full-training and sampling commands.
+
+Preserve seed 42, the official split, fixed validation noise, checkpoints, and progress bars.
+
+---
+
+Inspect the entire Flowmatching2 folder and improve the validity of the generated floor plans.
+
+Current generations respect the apartment outline reasonably well and are diverse, but they contain:
+
+* overlapping rooms,
+* thin or degenerate polygons,
+* gaps between rooms,
+* inconsistent shared walls,
+* occasionally strange/self-intersecting polygon shapes,
+* strong imbalance toward some room types.
+
+Do not immediately increase the model size. First determine whether the problem comes from preprocessing, masking, coordinate normalization, polygon ordering, training, or sampling.
+
+Tasks:
+
+1. Audit `dataset.py`, `house_flow.py`, `train.py`, and `val.py`.
+
+   * Verify padded corners are masked everywhere, including attention and loss.
+   * Verify room-instance and corner-index embeddings are correct.
+   * Verify coordinates are normalized and denormalized consistently.
+   * Verify every polygon has a consistent clockwise or counterclockwise corner order.
+   * Detect repeated vertices, zero-length edges, self-intersections, and polygons with fewer than three valid points.
+   * Check that the loss is computed only on valid coordinates.
+
+2. Add a dataset-debug script that plots at least 20 processed ground-truth samples after normalization and reconstruction. Report:
+
+   * invalid polygon rate,
+   * self-intersection rate,
+   * mean number of rooms,
+   * mean corners per room,
+   * fraction of padded coordinates,
+   * coordinate min/max.
+
+3. Add a tiny-overfit mode to `train.py`, for example:
+
+   ```bash
+   python train.py ... --overfit_samples 32
+   ```
+
+   It should repeatedly train on the same 32 plans and save qualitative generations. The model should be able to nearly reconstruct this tiny subset. Add deterministic seeds.
+
+4. Add quantitative geometry metrics to `val.py`:
+
+   * room area outside the outline,
+   * pairwise room overlap area,
+   * outline coverage,
+   * uncovered outline area,
+   * invalid polygon rate,
+   * self-intersection rate,
+   * number of very small rooms,
+   * number of very thin rooms,
+   * diversity across samples for the same outline.
+
+   Report both per-plan values and dataset averages in a CSV or JSON file.
+
+5. Compare ODE sampling using 50, 100, 250, and 500 Euler steps. Keep the same initial noise when comparing step counts.
+
+6. Add optional training losses, controlled by CLI weights:
+
+   * Smooth L1 or Huber velocity loss,
+   * polygon edge-length regularization,
+   * very-short-edge penalty,
+   * polygon signed-area penalty for collapsed rooms,
+   * outside-outline penalty if a differentiable approximation is practical.
+
+   Do not use Shapely operations directly inside the training loss because they are not differentiable. Shapely may be used for validation metrics.
+
+7. Preserve the current baseline. New behavior must be optional through arguments such as:
+
+   ```bash
+   --velocity_loss mse|huber
+   --lambda_short_edge
+   --lambda_area
+   --lambda_outside
+   --overfit_samples
+   ```
+
+8. Check whether each room is predicted independently in a way that makes a valid partition impossible. Explain whether the current representation can enforce shared walls. Do not redesign the representation yet, but propose the smallest realistic architectural change if independent polygon prediction is the fundamental limitation.
+
+9. Run syntax checks and small CPU tests. Provide:
+
+   * a summary of every bug found,
+   * files changed,
+   * exact commands for dataset debugging, tiny overfitting, normal training, and validation,
+   * which changes are bug fixes versus experimental regularizers.
+
+Prioritize correctness and diagnostics over speculative architectural changes. Do not claim an improvement unless it is supported by the new quantitative metrics.
+
+---
+
+The FlowMatching2 tiny-overfit run crashed at epoch 45 during preview generation, not during optimization.
+
+The traceback is:
+
+save_overfit_previews
+→ decode_room_geometry
+→ repair_layout
+→ outline.difference(occupied_geom)
+→ shapely.errors.GEOSException:
+TopologyException: unable to assign free hole to a shell
+
+Fix preview and decoding robustness without changing training behavior.
+
+Requirements:
+
+1. Preview generation must never terminate training.
+   Catch shapely.errors.GEOSException around each preview sample, log the affected plan/sample, and continue.
+
+2. Before geometric operations such as difference, intersection, or union:
+   - validate the outline and generated room geometries,
+   - use shapely.make_valid where available,
+   - fall back to buffer(0) when needed,
+   - retain only polygonal components from GeometryCollections.
+
+3. Validate occupied_geom after unary_union and before:
+   outline.difference(occupied_geom)
+
+4. If gap filling still fails, save the raw un-repaired prediction or skip gap filling for that preview. Do not crash.
+
+5. Add a CLI option such as:
+   --preview-repair true|false
+   and default previews to the safest behavior.
+
+6. Add tests with:
+   - self-intersecting polygons,
+   - GeometryCollections,
+   - polygons containing invalid holes,
+   - empty geometries,
+   - overlapping generated rooms.
+
+7. Ensure checkpoints are saved before optional preview generation so a preview failure cannot lose training progress.
+
+8. Add or verify resume-from-checkpoint support, then provide the exact command to resume this run from the latest checkpoint.
+
+Do not change the model, losses, dataset, or optimizer in this fix.
+
+---
+
+Implement an optional shared wall-graph representation in `FlowMatching2`, inspired by WallPlan and GSDiff.
+
+The current independent-polygon representation produces overlaps, gaps, sliver rooms, and inconsistent shared walls even during tiny overfitting. The new representation should generate one shared planar structure: junctions and wall segments are predicted once, and room polygons are reconstructed from cycles/faces of that graph.
+
+Do not remove or modify the existing polygon and partition baselines. Add the new approach as an optional experimental mode.
+
+## Objective
+
+Add a geometry mode such as:
+
+```bash
+--geometry-representation wall_graph
+```
+
+The wall-graph model should represent a plan using:
+
+* shared wall junction coordinates,
+* wall-segment connectivity,
+* junction-presence masks,
+* wall-presence masks,
+* room types associated with reconstructed faces,
+* the apartment outline as the condition.
+
+Use flow matching only for continuous junction coordinates. Predict topology and semantic information with discrete auxiliary heads.
+
+## 1. Audit the repository
+
+Inspect the full `FlowMatching2` repository before editing.
+
+Identify:
+
+* how prepared plans and outlines are stored,
+* how polygon and partition geometry modes are selected,
+* where flow states are constructed,
+* how masks, room types, counts, and areas are handled,
+* how sampling and decoding work,
+* how evaluation metrics are computed.
+
+Reuse existing infrastructure where possible.
+
+## 2. Convert room polygons into a shared wall graph
+
+Add preprocessing that converts each ground-truth floor plan into a planar wall graph.
+
+For every plan:
+
+1. Snap nearly identical vertices using a configurable tolerance.
+2. Split edges when another junction lies in the middle of an edge.
+3. Merge duplicate and reversed wall segments.
+4. Represent every physical wall only once.
+5. Preserve exterior-boundary walls.
+6. Record which rooms are incident to each wall.
+7. Record room type and room ID for each bounded face.
+8. Ensure deterministic junction and edge ordering.
+
+Suggested data representation:
+
+```python
+junction_xy:       [max_junctions, 2]
+junction_mask:     [max_junctions]
+edge_index:        [max_edges, 2]
+edge_mask:         [max_edges]
+edge_is_exterior:  [max_edges]
+edge_room_ids:     [max_edges, 2]
+room_types:        [max_rooms]
+room_mask:         [max_rooms]
+outline:           existing outline representation
+```
+
+Save preprocessing statistics:
+
+* number of junctions,
+* number of walls,
+* number of rooms,
+* duplicate-wall rate,
+* disconnected-component rate,
+* invalid-face rate,
+* percentage of plans successfully converted.
+
+Do not silently discard failed plans. Save their IDs and failure reasons to CSV.
+
+## 3. Add a wall-graph dataset mode
+
+Add a dataset/config option:
+
+```bash
+--geometry-representation polygon
+--geometry-representation partition
+--geometry-representation wall_graph
+```
+
+Requirements:
+
+* Existing defaults must remain unchanged.
+* Padding masks must be applied consistently.
+* Junction ordering must be deterministic.
+* Coordinate normalization and inverse transformation must reuse the current outline normalization.
+* Add unit tests for graph conversion and padding.
+
+## 4. Implement a minimal wall-graph flow model
+
+Do not build an unnecessarily large architecture.
+
+Condition on the existing outline encoder.
+
+The model should contain:
+
+### Continuous branch
+
+Flow-match junction coordinates:
+
+```python
+x_t = (1 - t) * noise + t * junction_xy
+target_velocity = junction_xy - noise
+pred_velocity = model(x_t, t, outline, masks, ...)
+```
+
+Compute velocity loss only on valid junctions.
+
+### Discrete branches
+
+Predict:
+
+* junction presence,
+* wall connectivity,
+* exterior-wall status if useful,
+* optional room or face types.
+
+For the first implementation, use a dense symmetric edge-logit matrix:
+
+```python
+edge_logits: [batch, max_junctions, max_junctions]
+```
+
+Mask:
+
+* diagonal entries,
+* padded junctions,
+* duplicate symmetric entries.
+
+Use weighted binary cross-entropy or focal loss because positive wall edges are sparse.
+
+If dense connectivity is prohibitively expensive, implement candidate edges using k-nearest neighbours plus outline-neighbour candidates, but document the trade-off.
+
+## 5. Separate topology diagnostics from full unconditional generation
+
+Implement the following modes in order.
+
+### A. Ground-truth topology overfit
+
+Use ground-truth:
+
+* junction mask,
+* edge graph,
+* junction ordering.
+
+Generate only junction coordinates with flow matching.
+
+This isolates whether the continuous geometry branch can overfit.
+
+### B. Ground-truth junction mask, predicted edges
+
+Use:
+
+* ground-truth junction count and mask,
+* generated junction coordinates,
+* predicted wall connectivity.
+
+### C. Fully predicted graph
+
+Predict:
+
+* junction presence,
+* coordinates,
+* wall edges.
+
+Do not claim success for the full model until A and B work.
+
+Add CLI options such as:
+
+```bash
+--wall-graph-gt-mask
+--wall-graph-gt-edges
+--wall-graph-gt-types
+```
+
+These are diagnostic flags, not final-generation shortcuts.
+
+## 6. Reconstruct rooms from the predicted wall graph
+
+Add robust decoding:
+
+1. Denormalize junction coordinates.
+2. Remove padded and low-confidence junctions.
+3. Construct candidate wall segments from predicted edge probabilities.
+4. Reject self-edges and near-zero-length edges.
+5. Detect crossing segments.
+6. Clip or reject walls outside the apartment outline.
+7. Polygonize the planar wall graph using Shapely.
+8. Keep bounded faces inside the outline.
+9. Assign room types to faces.
+10. Preserve the exterior outline.
+
+Save both:
+
+* raw predicted graph,
+* decoded room polygons.
+
+Do not hide invalid predictions through aggressive repair. Report raw and repaired metrics separately.
+
+Any Shapely failure must be caught and logged without crashing training or evaluation.
+
+## 7. Add structural losses
+
+Keep all new losses optional and disabled by default.
+
+Add:
+
+```bash
+--lambda-junction-flow
+--lambda-junction-presence
+--lambda-edge
+--lambda-edge-crossing
+--lambda-outline-contact
+```
+
+Implement:
+
+* masked velocity loss for junction coordinates,
+* junction-presence BCE,
+* weighted edge BCE,
+* differentiable crossing penalty for non-adjacent predicted segments when practical,
+* optional penalty for exterior junctions that should lie on the outline.
+
+Do not use non-differentiable Shapely operations inside training losses.
+
+Apply geometry losses to the estimated clean sample:
+
+```python
+x1_pred = x_t + (1 - t) * predicted_velocity
+```
+
+not directly to `x_t`.
+
+## 8. Add wall-graph evaluation metrics
+
+Extend evaluation with:
+
+* junction coordinate error after matching,
+* junction precision, recall, and F1,
+* edge precision, recall, and F1,
+* graph connectivity,
+* number of crossing walls,
+* number of reconstructed faces,
+* room-count error,
+* invalid-face rate,
+* overlap ratio,
+* uncovered-outline ratio,
+* outside-outline ratio,
+* shared-wall consistency,
+* room-type accuracy.
+
+Use Hungarian matching for predicted and target junctions when direct slot correspondence is unavailable.
+
+Save:
+
+```text
+metrics_per_plan.csv
+metrics_summary.json
+wall_graph_failures.csv
+```
+
+## 9. Add visual diagnostics
+
+For fixed plans and fixed noise, save:
+
+1. target wall graph,
+2. predicted raw junctions,
+3. predicted junctions plus edge probabilities,
+4. thresholded predicted wall graph,
+5. reconstructed room faces,
+6. target and prediction side by side.
+
+Use the same plans and noise at every preview epoch.
+
+Checkpoint saving must happen before preview generation. Preview failures must never terminate training.
+
+## 10. Add a real tiny-overfit experiment
+
+Provide a command that trains on exactly 8 or 16 plans.
+
+First run mode A:
+
+* ground-truth mask,
+* ground-truth edges,
+* flow only on junction coordinates.
+
+Success criteria:
+
+* near-zero deterministic clean-junction reconstruction error,
+* generated junctions visually align with the target,
+* reconstructed faces closely match target rooms when using ground-truth topology.
+
+Then run mode B with predicted edges.
+
+Report whether failure comes from:
+
+* continuous junction generation,
+* topology prediction,
+* graph decoding,
+* room-type assignment.
+
+Do not run a full-dataset experiment before the tiny-overfit tests succeed.
+
+## 11. Preserve all baselines
+
+Requirements:
+
+* Existing polygon and partition checkpoints must still load.
+* Existing commands must behave identically.
+* New checkpoint metadata must include:
+
+```text
+geometry_representation
+max_junctions
+max_edges
+edge_threshold
+normalization configuration
+model architecture
+```
+
+* Evaluation must reject incompatible checkpoints with a clear error.
+
+## 12. Tests
+
+Add tests for:
+
+* polygon-to-wall-graph conversion,
+* duplicate and reversed edge merging,
+* vertex snapping,
+* T-junction edge splitting,
+* padding masks,
+* symmetric edge logits,
+* no self-edges,
+* junction flow loss masking,
+* graph polygonization,
+* empty and disconnected predictions,
+* crossing segments,
+* checkpoint compatibility.
+
+Run:
+
+```bash
+python -m compileall .
+pytest -q
+```
+
+## Deliverables
+
+At the end, provide:
+
+* files changed,
+* preprocessing design,
+* tensor shapes,
+* model changes,
+* losses added,
+* decoding algorithm,
+* tests added,
+* exact commands for preprocessing,
+* exact command for mode-A tiny overfit,
+* exact command for mode-B tiny overfit,
+* exact validation command,
+* known limitations.
+
+Prioritize a correct, inspectable minimal implementation over a large speculative redesign. First prove that shared topology plus generated junction coordinates can reconstruct the tiny training subset.
+
+---
+
+Finish the current `FlowMatching2` wall-graph implementation so I can preprocess the full dataset, launch a meaningful GPU training run, and evaluate generated layouts now.
+
+Do not redesign the representation again. Do not add more placeholder features. Build a practical wall-graph v1 from the code that already exists.
+
+The current implementation already has:
+
+* wall-graph preprocessing,
+* junction-coordinate flow matching,
+* junction-presence prediction,
+* dense symmetric edge prediction,
+* Shapely graph decoding,
+* evaluation scripts,
+* polygon and partition baselines preserved.
+
+The goal of this pass is to make the wall-graph path reliable enough for an actual full training run.
+
+## 1. Remove or disable unfinished functionality
+
+The following are currently placeholders:
+
+* room-type assignment to reconstructed faces,
+* edge-crossing loss,
+* outline-contact loss,
+* shared-wall consistency metric.
+
+Do one of the following for each:
+
+* implement it correctly, or
+* remove it from the default training path and clearly mark it unsupported.
+
+Do not allow a CLI argument to appear functional while returning a constant zero loss.
+
+The first trainable version does not need room-type generation. Prioritize valid geometry and topology.
+
+## 2. Add a production-ready wall-graph training preset
+
+Add a preset or documented command for:
+
+```bash
+--geometry-representation wall_graph
+```
+
+The default wall-graph training objective should be:
+
+```text
+junction velocity loss
++ junction endpoint reconstruction loss
++ junction presence loss
++ edge connectivity loss
+```
+
+Add:
+
+```bash
+--lambda-junction-endpoint
+```
+
+Using:
+
+```python
+x1_pred = x_t + (1.0 - t) * predicted_velocity
+endpoint_loss = masked_loss(x1_pred, target_junction_xy)
+```
+
+The endpoint loss must use only valid target junctions.
+
+Recommended defaults:
+
+```text
+lambda_junction_flow = 1.0
+lambda_junction_endpoint = 1.0
+lambda_junction_presence = 0.2
+lambda_edge = 1.0
+```
+
+Preserve existing behavior for polygon and partition modes.
+
+## 3. Resolve train/inference mask mismatch
+
+During ordinary wall-graph training, do not let the coordinate flow branch depend exclusively on a ground-truth mask that is unavailable at generation time.
+
+Implement a stable curriculum:
+
+### Phase 1
+
+For the first configurable fraction of training, use the ground-truth junction mask for coordinate attention and flow loss.
+
+### Phase 2
+
+Gradually switch to a mask derived from predicted junction presence while keeping target masks for loss masking.
+
+Add arguments such as:
+
+```bash
+--wall-graph-mask-warmup-epochs 20
+--wall-graph-mask-transition-epochs 20
+```
+
+During validation, report results using both:
+
+* ground-truth mask, as a geometry diagnostic;
+* predicted mask, as actual generation.
+
+The predicted-mask path must be the primary generation result.
+
+## 4. Make edge training practical
+
+The dense edge matrix is highly imbalanced.
+
+Ensure the edge loss:
+
+* uses only the upper triangle;
+* excludes diagonal entries;
+* excludes padded junction pairs;
+* counts each undirected edge once;
+* uses a positive-class weight computed from valid positive and negative pairs;
+* clamps extreme weights to a reasonable maximum;
+* reports precision, recall and F1.
+
+Add:
+
+```bash
+--edge-loss bce|focal
+--edge-pos-weight-max
+```
+
+Use weighted BCE as the default.
+
+At evaluation, tune or sweep edge thresholds:
+
+```bash
+--edge-thresholds 0.1,0.2,0.3,0.4,0.5,0.6,0.7
+```
+
+Select the threshold with the best validation edge F1 and save it in checkpoint metadata.
+
+## 5. Make full-dataset preprocessing usable
+
+Create a recommended full preprocessing path.
+
+Requirements:
+
+* convert every plan possible;
+* skip conversion failures instead of terminating;
+* write every skipped plan and reason to CSV;
+* report truncation rates for junctions and edges;
+* do not silently truncate plans;
+* either reject oversized plans or explicitly mark them;
+* report percent retained for train, validation and test.
+
+Choose sensible graph limits by first scanning the complete dataset distributions.
+
+Add a scan-only option such as:
+
+```bash
+python scripts/prepare_dataset.py \
+  --geometry-representation wall_graph \
+  --scan-wall-graph-stats \
+  ...
+```
+
+The scan must report percentiles for:
+
+* number of junctions,
+* number of internal junctions,
+* number of edges,
+* number of rooms.
+
+Then choose `max_junctions` and `max_edges` that retain at least 99% of successfully converted plans, if computationally feasible.
+
+Do not simplify topology aggressively just to fit arbitrary limits.
+
+The known outline is already supplied as conditioning. Avoid representing unnecessary dense samples along the exterior boundary as generated junctions whenever the current preprocessing can safely distinguish them from meaningful wall attachment points.
+
+## 6. Verify preprocessing round-trip automatically
+
+Before writing prepared data, run ground-truth graph reconstruction.
+
+For every converted plan:
+
+1. decode target junctions and target edges;
+2. polygonize the graph;
+3. compare reconstructed faces with original rooms.
+
+Save:
+
+```text
+wall_graph_roundtrip_per_plan.csv
+wall_graph_roundtrip_summary.json
+wall_graph_roundtrip_failures.csv
+```
+
+Metrics:
+
+* reconstructed face count,
+* target room count,
+* face-count error,
+* overlap ratio,
+* uncovered-outline ratio,
+* outside-outline ratio,
+* mean matched room IoU.
+
+Reject plans with clearly broken graph reconstruction rather than training on invalid targets.
+
+Use configurable thresholds, with reasonable defaults.
+
+## 7. Make training robust
+
+Training must:
+
+* save `last.pt` every epoch;
+* save `best.pt` using deterministic validation metrics;
+* support `--resume`;
+* save before preview generation;
+* never crash because of Shapely or Matplotlib preview failures;
+* log skipped preview IDs and reasons;
+* include all preprocessing and architecture settings in checkpoint metadata.
+
+Checkpoint selection should use a deterministic composite validation metric, not one randomly sampled flow loss.
+
+For example:
+
+```text
+endpoint reconstruction error
++ edge error
++ junction-presence error
+```
+
+## 8. Add deterministic validation
+
+Use fixed plan IDs, fixed initial noise and fixed time values.
+
+Report:
+
+### Teacher-forced diagnostics
+
+* target junction mask;
+* target edge graph;
+* predicted coordinates.
+
+### Actual generation
+
+* predicted junction presence;
+* predicted coordinates;
+* predicted edges.
+
+For endpoint reconstruction, use fixed:
+
+```python
+t_values = [0.1, 0.5, 0.9]
+```
+
+For ODE sampling, reuse the exact same initial noise tensor for every checkpoint comparison.
+
+Save:
+
+```text
+metrics_per_plan.csv
+metrics_summary.json
+threshold_sweep.csv
+```
+
+Primary metrics:
+
+* endpoint coordinate MSE;
+* sampled junction matching error;
+* junction precision/recall/F1;
+* edge precision/recall/F1;
+* number of crossing walls;
+* reconstructed face-count error;
+* uncovered-outline ratio;
+* outside-outline ratio;
+* invalid-decode rate.
+
+## 9. Add useful visual previews
+
+For fixed validation plans, save one figure containing:
+
+1. target wall graph;
+2. direct endpoint reconstruction at fixed `t`;
+3. sampled raw junctions;
+4. predicted edge probabilities;
+5. thresholded graph;
+6. reconstructed faces.
+
+Use the same plans and noise throughout training.
+
+Do not display aggressively repaired geometry as though it were raw model output. Label raw and decoded results separately.
+
+## 10. Validate the complete path before full training
+
+Run these tests in order.
+
+### Test A: one-plan coordinate overfit
+
+Use target mask and target edges.
+
+Success condition:
+
+* deterministic endpoint MSE becomes very small;
+* generated junctions align visibly with targets;
+* target topology reconstructs valid faces.
+
+### Test B: eight-plan coordinate overfit
+
+Use target masks and target edges.
+
+### Test C: clean-coordinate edge overfit
+
+Use target junction coordinates and masks, but predict edges.
+
+Success condition:
+
+* edge F1 approaches 1 on the overfit subset;
+* graph decoding reconstructs the expected face count.
+
+### Test D: combined eight-plan overfit
+
+Predict coordinates and edges, using the mask curriculum.
+
+Only after all four paths run should you provide the full training command.
+
+Do not spend hundreds of epochs automatically. Run enough smoke iterations to confirm losses decrease and outputs are written.
+
+## 11. Provide a real full-training configuration
+
+After implementing and testing, provide an exact GPU command suitable for the AMD ROCm server, where PyTorch uses:
+
+```bash
+--device cuda
+```
+
+Use a meaningful model, approximately:
+
+```text
+d_model = 256
+nhead = 8
+encoder_layers = 4
+decoder_layers = 4
+ffn_dim = 1024
+batch_size = largest safe value, initially 8
+epochs = 100 to 200
+```
+
+Include:
+
+* full preprocessing command;
+* full training command;
+* resume command;
+* validation command;
+* command to monitor training;
+* expected output files.
+
+The training command must use the actual prepared directory and not `/private/tmp`.
+
+Use paths such as:
+
+```text
+outputs/prepared_wall_graph
+outputs/wall_graph_v1
+outputs/wall_graph_v1_eval
+```
+
+## 12. Tests and final report
+
+Run:
+
+```bash
+python -m compileall .
+pytest -q
+```
+
+At the end, report:
+
+* every file changed;
+* which placeholders were implemented or disabled;
+* full-dataset conversion retention rate;
+* round-trip reconstruction success rate;
+* selected graph limits;
+* tensor memory estimate for the dense edge matrix;
+* results from tests A–D;
+* exact full preprocessing command;
+* exact AMD GPU training command;
+* exact resume command;
+* exact evaluation command;
+* remaining known limitations.
+
+The deliverable must be a wall-graph v1 that I can start training immediately. Prioritize a reliable end-to-end path over adding new research features.
+
+---
+
+analyse main.ipynb and modify it to store the model and then modify dataExploration.ipynb to commpute the metrics for all the dataset using the stored model
+
+---
+
+should I push the .codex and .entire?
+
+---
+
+give me the command to freeze my ehl conda env and then create another one form that
+
+---
+
+data_exploration.ipynb is extremely slow
