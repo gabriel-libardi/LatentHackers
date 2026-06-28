@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "ce05cd68a068",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 21,
+  "files_touched": [
+    ".gitignore",
+    "FlowMatching2/dataset.py",
+    "FlowMatching2/floorplan_gen/decoding.py",
+    "FlowMatching2/floorplan_gen/evaluation.py",
+    "FlowMatching2/floorplan_gen/losses.py",
+    "FlowMatching2/floorplan_gen/models/__init__.py",
+    "FlowMatching2/floorplan_gen/models/flow.py",
+    "FlowMatching2/floorplan_gen/models/wall_graph.py",
+    "FlowMatching2/floorplan_gen/prepared_dataset.py",
+    "FlowMatching2/floorplan_gen/sampling.py",
+    "FlowMatching2/floorplan_gen/wall_graph.py",
+    "FlowMatching2/floorplan_gen/wall_graph_losses.py",
+    "FlowMatching2/house_flow.py",
+    "FlowMatching2/scripts/debug_dataset.py",
+    "FlowMatching2/scripts/evaluate_flow.py",
+    "FlowMatching2/scripts/evaluate_wall_graph.py",
+    "FlowMatching2/scripts/prepare_dataset.py",
+    "FlowMatching2/scripts/train_flow.py",
+    "FlowMatching2/tests/test_decoding.py",
+    "FlowMatching2/tests/test_wall_graph.py",
+    "FlowMatching2/train.py",
+    "FlowMatching2/val.py",
+    "README.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ce/05cd68a068/0/metadata.json",
+      "transcript": "/ce/05cd68a068/0/full.jsonl",
+      "content_hash": "/ce/05cd68a068/0/content_hash.txt",
+      "prompt": "/ce/05cd68a068/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1360311,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 41340288,
+    "output_tokens": 199474,
+    "api_call_count": 343
+  }
+}

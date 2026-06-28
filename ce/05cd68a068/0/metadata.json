@@ -1,0 +1,515 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "ce05cd68a068",
+  "session_id": "019f09fe-83b0-7b40-aa1e-23ddecb53637",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-28T08:44:08.023689Z",
+  "branch": "main",
+  "checkpoints_count": 21,
+  "save_step_count": 20,
+  "files_touched": [
+    ".gitignore",
+    "FlowMatching2/dataset.py",
+    "FlowMatching2/floorplan_gen/decoding.py",
+    "FlowMatching2/floorplan_gen/evaluation.py",
+    "FlowMatching2/floorplan_gen/losses.py",
+    "FlowMatching2/floorplan_gen/models/__init__.py",
+    "FlowMatching2/floorplan_gen/models/flow.py",
+    "FlowMatching2/floorplan_gen/models/wall_graph.py",
+    "FlowMatching2/floorplan_gen/prepared_dataset.py",
+    "FlowMatching2/floorplan_gen/sampling.py",
+    "FlowMatching2/floorplan_gen/wall_graph.py",
+    "FlowMatching2/floorplan_gen/wall_graph_losses.py",
+    "FlowMatching2/house_flow.py",
+    "FlowMatching2/scripts/debug_dataset.py",
+    "FlowMatching2/scripts/evaluate_flow.py",
+    "FlowMatching2/scripts/evaluate_wall_graph.py",
+    "FlowMatching2/scripts/prepare_dataset.py",
+    "FlowMatching2/scripts/train_flow.py",
+    "FlowMatching2/tests/test_decoding.py",
+    "FlowMatching2/tests/test_wall_graph.py",
+    "FlowMatching2/train.py",
+    "FlowMatching2/val.py",
+    "README.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "7c7b67ecce9c",
+  "token_usage": {
+    "input_tokens": 1360311,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 41340288,
+    "output_tokens": 199474,
+    "api_call_count": 343
+  },
+  "session_metrics": {
+    "turn_count": 21
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-28T08:44:07.924216Z",
+    "agent_lines": 1415,
+    "agent_removed": 1,
+    "human_added": 11647,
+    "human_modified": 2,
+    "human_removed": 0,
+    "total_committed": 13063,
+    "total_lines_changed": 13065,
+    "agent_percentage": 10.838117106773822,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1087401,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".codex/agents/entire-search.toml": 23,
+        ".codex/config.toml": 3,
+        ".codex/hooks.json": 52,
+        "Exploratory_data_analysis.ipynb": 328,
+        "brief.pdf": 148,
+        "mds_V2_5.372k.csv": 1086847
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 8,
+      "user_lines_removed": 40,
+      "agent_lines_added": 1472,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".gitignore": 2,
+        "README.md": 1,
+        "floorplan_gen/config.py": 1,
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38,
+        "README.md": 1,
+        "floorplan_gen/config.py": 1
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 5,
+      "user_lines_removed": 39,
+      "agent_lines_added": 1475,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "floorplan_gen/config.py": 1,
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38,
+        "floorplan_gen/config.py": 1
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 4,
+      "user_lines_removed": 38,
+      "agent_lines_added": 1649,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 32291,
+      "user_lines_removed": 38,
+      "agent_lines_added": 2581,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "outputs/flow_baseline/train_log.jsonl": 26,
+        "outputs/prepared/inverse_transforms.json": 26862,
+        "outputs/prepared/metadata.json": 5399,
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 32326,
+      "user_lines_removed": 38,
+      "agent_lines_added": 3049,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "outputs/flow_baseline/train_log.jsonl": 61,
+        "outputs/prepared/inverse_transforms.json": 26862,
+        "outputs/prepared/metadata.json": 5399,
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 32336,
+      "user_lines_removed": 38,
+      "agent_lines_added": 3049,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "outputs/flow_baseline/train_log.jsonl": 71,
+        "outputs/prepared/inverse_transforms.json": 26862,
+        "outputs/prepared/metadata.json": 5399,
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 32365,
+      "user_lines_removed": 38,
+      "agent_lines_added": 3049,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "outputs/flow_baseline/train_log.jsonl": 91,
+        "outputs/prepared/inverse_transforms.json": 26862,
+        "outputs/prepared/metadata.json": 5408,
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38
+      }
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 32476,
+      "user_lines_removed": 38,
+      "agent_lines_added": 3113,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "outputs/flow_baseline/train_log.jsonl": 202,
+        "outputs/prepared/inverse_transforms.json": 26862,
+        "outputs/prepared/metadata.json": 5408,
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38
+      }
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 32476,
+      "user_lines_removed": 38,
+      "agent_lines_added": 3113,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "outputs/flow_baseline/train_log.jsonl": 202,
+        "outputs/prepared/inverse_transforms.json": 26862,
+        "outputs/prepared/metadata.json": 5408,
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38
+      }
+    },
+    {
+      "checkpoint_number": 11,
+      "user_lines_added": 33054,
+      "user_lines_removed": 38,
+      "agent_lines_added": 3579,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "outputs/eval/val/metrics_summary.json": 65,
+        "outputs/eval/val/per_sample_metrics.csv": 513,
+        "outputs/flow_baseline/train_log.jsonl": 202,
+        "outputs/prepared/inverse_transforms.json": 26862,
+        "outputs/prepared/metadata.json": 5408,
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38
+      }
+    },
+    {
+      "checkpoint_number": 12,
+      "user_lines_added": 33056,
+      "user_lines_removed": 38,
+      "agent_lines_added": 3946,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        "outputs/eval/val/metrics_summary.json": 65,
+        "outputs/eval/val/per_sample_metrics.csv": 513,
+        "outputs/flow_baseline/train_log.jsonl": 203,
+        "outputs/prepared/inverse_transforms.json": 26862,
+        "outputs/prepared/metadata.json": 5409,
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38
+      }
+    },
+    {
+      "checkpoint_number": 13,
+      "user_lines_added": 33058,
+      "user_lines_removed": 38,
+      "agent_lines_added": 3946,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        "outputs/eval/val/metrics_summary.json": 65,
+        "outputs/eval/val/per_sample_metrics.csv": 513,
+        "outputs/flow_baseline/train_log.jsonl": 205,
+        "outputs/prepared/inverse_transforms.json": 26862,
+        "outputs/prepared/metadata.json": 5409,
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38
+      }
+    },
+    {
+      "checkpoint_number": 14,
+      "user_lines_added": 33062,
+      "user_lines_removed": 38,
+      "agent_lines_added": 3946,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        "outputs/eval/val/metrics_summary.json": 65,
+        "outputs/eval/val/per_sample_metrics.csv": 513,
+        "outputs/flow_baseline/train_log.jsonl": 209,
+        "outputs/prepared/inverse_transforms.json": 26862,
+        "outputs/prepared/metadata.json": 5409,
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38
+      }
+    },
+    {
+      "checkpoint_number": 15,
+      "user_lines_added": 33064,
+      "user_lines_removed": 38,
+      "agent_lines_added": 3946,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        "outputs/eval/val/metrics_summary.json": 65,
+        "outputs/eval/val/per_sample_metrics.csv": 513,
+        "outputs/flow_baseline/train_log.jsonl": 211,
+        "outputs/prepared/inverse_transforms.json": 26862,
+        "outputs/prepared/metadata.json": 5409,
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38
+      }
+    },
+    {
+      "checkpoint_number": 16,
+      "user_lines_added": 32700,
+      "user_lines_removed": 38,
+      "agent_lines_added": 3946,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        "outputs/eval/metrics_summary.json": 72,
+        "outputs/eval/per_sample_metrics.csv": 129,
+        "outputs/flow_baseline/train_log.jsonl": 224,
+        "outputs/prepared/inverse_transforms.json": 26862,
+        "outputs/prepared/metadata.json": 5409,
+        "scripts/visualize_plan.py": 4
+      },
+      "user_removed_per_file": {
+        "Exploratory_data_analysis.ipynb": 38
+      }
+    },
+    {
+      "checkpoint_number": 17,
+      "user_lines_added": 37126,
+      "user_lines_removed": 0,
+      "agent_lines_added": 181,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        "FlowMatching2/Exploratory_data_analysis.ipynb": 290,
+        "FlowMatching2/brief.pdf": 148,
+        "FlowMatching2/floorplan_gen/__init__.py": 2,
+        "FlowMatching2/floorplan_gen/config.py": 18,
+        "FlowMatching2/floorplan_gen/dataset.py": 182,
+        "FlowMatching2/floorplan_gen/decoding.py": 460,
+        "FlowMatching2/floorplan_gen/evaluation.py": 198,
+        "FlowMatching2/floorplan_gen/geometry.py": 148,
+        "FlowMatching2/floorplan_gen/losses.py": 94,
+        "FlowMatching2/floorplan_gen/models/__init__.py": 5,
+        "FlowMatching2/floorplan_gen/models/flow.py": 147,
+        "FlowMatching2/floorplan_gen/models/pointnet.py": 35,
+        "FlowMatching2/floorplan_gen/plotting.py": 16,
+        "FlowMatching2/floorplan_gen/prepared_dataset.py": 64,
+        "FlowMatching2/floorplan_gen/raster_metrics.py": 155,
+        "FlowMatching2/floorplan_gen/representations.py": 145,
+        "FlowMatching2/floorplan_gen/sampling.py": 49,
+        "FlowMatching2/floorplan_gen/splits.py": 114,
+        "FlowMatching2/floorplan_gen/tokens.py": 76,
+        "FlowMatching2/outputs/flow_baseline/train_log.jsonl": 224,
+        "FlowMatching2/outputs/flow_count_area/train_log.jsonl": 31,
+        "FlowMatching2/outputs/prepared/inverse_transforms.json": 26862,
+        "FlowMatching2/outputs/prepared/metadata.json": 5409,
+        "FlowMatching2/outputs/samples_count_area/metrics.json": 500,
+        "FlowMatching2/scripts/dataset_stats.py": 97,
+        "FlowMatching2/scripts/evaluate_flow.py": 327,
+        "FlowMatching2/scripts/prepare_dataset.py": 174,
+        "FlowMatching2/scripts/sample_flow.py": 140,
+        "FlowMatching2/scripts/train_flow.py": 350,
+        "FlowMatching2/scripts/visualize_plan.py": 104,
+        "FlowMatching2/scripts/write_splits.py": 49,
+        "FlowMatching2/tests/test_decoding.py": 98,
+        "FlowMatching2/tests/test_evaluation.py": 29,
+        "FlowMatching2/tests/test_flow_model.py": 32,
+        "FlowMatching2/tests/test_geometry.py": 29,
+        "FlowMatching2/tests/test_losses.py": 67,
+        "FlowMatching2/tests/test_pointnet.py": 14,
+        "FlowMatching2/tests/test_prepared_dataset.py": 30,
+        "FlowMatching2/tests/test_raster_metrics.py": 42,
+        "FlowMatching2/tests/test_representations.py": 39,
+        "FlowMatching2/tests/test_sampling.py": 70,
+        "FlowMatching2/tests/test_splits.py": 41,
+        "FlowMatching2/tests/test_tokens.py": 22
+      }
+    },
+    {
+      "checkpoint_number": 18,
+      "user_lines_added": 36056,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1785,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        "FlowMatching2/Exploratory_data_analysis.ipynb": 290,
+        "FlowMatching2/brief.pdf": 148,
+        "FlowMatching2/floorplan_gen/__init__.py": 2,
+        "FlowMatching2/floorplan_gen/config.py": 18,
+        "FlowMatching2/floorplan_gen/dataset.py": 182,
+        "FlowMatching2/floorplan_gen/decoding.py": 460,
+        "FlowMatching2/floorplan_gen/geometry.py": 148,
+        "FlowMatching2/floorplan_gen/models/__init__.py": 5,
+        "FlowMatching2/floorplan_gen/models/pointnet.py": 35,
+        "FlowMatching2/floorplan_gen/plotting.py": 16,
+        "FlowMatching2/floorplan_gen/prepared_dataset.py": 64,
+        "FlowMatching2/floorplan_gen/raster_metrics.py": 155,
+        "FlowMatching2/floorplan_gen/representations.py": 145,
+        "FlowMatching2/floorplan_gen/sampling.py": 49,
+        "FlowMatching2/floorplan_gen/splits.py": 114,
+        "FlowMatching2/floorplan_gen/tokens.py": 76,
+        "FlowMatching2/outputs/flow_baseline/train_log.jsonl": 224,
+        "FlowMatching2/outputs/flow_count_area/train_log.jsonl": 31,
+        "FlowMatching2/outputs/overfit32/train_log.jsonl": 46,
+        "FlowMatching2/outputs/prepared/inverse_transforms.json": 26862,
+        "FlowMatching2/outputs/prepared/metadata.json": 5409,
+        "FlowMatching2/outputs/samples_count_area/metrics.json": 500,
+        "FlowMatching2/scripts/dataset_stats.py": 97,
+        "FlowMatching2/scripts/prepare_dataset.py": 174,
+        "FlowMatching2/scripts/sample_flow.py": 140,
+        "FlowMatching2/scripts/visualize_plan.py": 104,
+        "FlowMatching2/scripts/write_splits.py": 49,
+        "FlowMatching2/tests/test_decoding.py": 98,
+        "FlowMatching2/tests/test_evaluation.py": 29,
+        "FlowMatching2/tests/test_flow_model.py": 32,
+        "FlowMatching2/tests/test_geometry.py": 29,
+        "FlowMatching2/tests/test_losses.py": 67,
+        "FlowMatching2/tests/test_pointnet.py": 14,
+        "FlowMatching2/tests/test_prepared_dataset.py": 30,
+        "FlowMatching2/tests/test_raster_metrics.py": 42,
+        "FlowMatching2/tests/test_representations.py": 39,
+        "FlowMatching2/tests/test_sampling.py": 70,
+        "FlowMatching2/tests/test_splits.py": 41,
+        "FlowMatching2/tests/test_tokens.py": 22
+      }
+    },
+    {
+      "checkpoint_number": 19,
+      "user_lines_added": 35630,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2554,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        "FlowMatching2/Exploratory_data_analysis.ipynb": 290,
+        "FlowMatching2/brief.pdf": 148,
+        "FlowMatching2/floorplan_gen/__init__.py": 2,
+        "FlowMatching2/floorplan_gen/config.py": 18,
+        "FlowMatching2/floorplan_gen/dataset.py": 182,
+        "FlowMatching2/floorplan_gen/geometry.py": 148,
+        "FlowMatching2/floorplan_gen/models/__init__.py": 5,
+        "FlowMatching2/floorplan_gen/models/pointnet.py": 35,
+        "FlowMatching2/floorplan_gen/plotting.py": 16,
+        "FlowMatching2/floorplan_gen/prepared_dataset.py": 64,
+        "FlowMatching2/floorplan_gen/raster_metrics.py": 155,
+        "FlowMatching2/floorplan_gen/representations.py": 145,
+        "FlowMatching2/floorplan_gen/sampling.py": 49,
+        "FlowMatching2/floorplan_gen/splits.py": 114,
+        "FlowMatching2/floorplan_gen/tokens.py": 76,
+        "FlowMatching2/outputs/flow_baseline/train_log.jsonl": 224,
+        "FlowMatching2/outputs/flow_count_area/train_log.jsonl": 31,
+        "FlowMatching2/outputs/overfit32/train_log.jsonl": 178,
+        "FlowMatching2/outputs/prepared/inverse_transforms.json": 26862,
+        "FlowMatching2/outputs/prepared/metadata.json": 5409,
+        "FlowMatching2/outputs/samples_count_area/metrics.json": 500,
+        "FlowMatching2/scripts/dataset_stats.py": 97,
+        "FlowMatching2/scripts/prepare_dataset.py": 174,
+        "FlowMatching2/scripts/sample_flow.py": 140,
+        "FlowMatching2/scripts/visualize_plan.py": 104,
+        "FlowMatching2/scripts/write_splits.py": 49,
+        "FlowMatching2/tests/test_evaluation.py": 29,
+        "FlowMatching2/tests/test_flow_model.py": 32,
+        "FlowMatching2/tests/test_geometry.py": 29,
+        "FlowMatching2/tests/test_losses.py": 67,
+        "FlowMatching2/tests/test_pointnet.py": 14,
+        "FlowMatching2/tests/test_prepared_dataset.py": 30,
+        "FlowMatching2/tests/test_raster_metrics.py": 42,
+        "FlowMatching2/tests/test_representations.py": 39,
+        "FlowMatching2/tests/test_sampling.py": 70,
+        "FlowMatching2/tests/test_splits.py": 41,
+        "FlowMatching2/tests/test_tokens.py": 22
+      }
+    },
+    {
+      "checkpoint_number": 20,
+      "user_lines_added": 35338,
+      "user_lines_removed": 0,
+      "agent_lines_added": 4101,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        "FlowMatching2/Exploratory_data_analysis.ipynb": 290,
+        "FlowMatching2/brief.pdf": 148,
+        "FlowMatching2/floorplan_gen/__init__.py": 2,
+        "FlowMatching2/floorplan_gen/config.py": 18,
+        "FlowMatching2/floorplan_gen/dataset.py": 182,
+        "FlowMatching2/floorplan_gen/geometry.py": 148,
+        "FlowMatching2/floorplan_gen/models/pointnet.py": 35,
+        "FlowMatching2/floorplan_gen/plotting.py": 16,
+        "FlowMatching2/floorplan_gen/raster_metrics.py": 155,
+        "FlowMatching2/floorplan_gen/representations.py": 145,
+        "FlowMatching2/floorplan_gen/splits.py": 114,
+        "FlowMatching2/floorplan_gen/tokens.py": 76,
+        "FlowMatching2/outputs/flow_baseline/train_log.jsonl": 224,
+        "FlowMatching2/outputs/flow_count_area/train_log.jsonl": 31,
+        "FlowMatching2/outputs/overfit32/train_log.jsonl": 178,
+        "FlowMatching2/outputs/prepared/inverse_transforms.json": 26862,
+        "FlowMatching2/outputs/prepared/metadata.json": 5409,
+        "FlowMatching2/outputs/samples_count_area/metrics.json": 500,
+        "FlowMatching2/scripts/dataset_stats.py": 97,
+        "FlowMatching2/scripts/sample_flow.py": 140,
+        "FlowMatching2/scripts/visualize_plan.py": 104,
+        "FlowMatching2/scripts/write_splits.py": 49,
+        "FlowMatching2/tests/test_evaluation.py": 29,
+        "FlowMatching2/tests/test_flow_model.py": 32,
+        "FlowMatching2/tests/test_geometry.py": 29,
+        "FlowMatching2/tests/test_losses.py": 67,
+        "FlowMatching2/tests/test_pointnet.py": 14,
+        "FlowMatching2/tests/test_prepared_dataset.py": 30,
+        "FlowMatching2/tests/test_raster_metrics.py": 42,
+        "FlowMatching2/tests/test_representations.py": 39,
+        "FlowMatching2/tests/test_sampling.py": 70,
+        "FlowMatching2/tests/test_splits.py": 41,
+        "FlowMatching2/tests/test_tokens.py": 22
+      }
+    }
+  ]
+}
