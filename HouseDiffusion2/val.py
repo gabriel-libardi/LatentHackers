@@ -12,6 +12,91 @@ import numpy as np
 from dataset import FloorplanDataset, ROOM_TYPES, ROOM_TYPE_TO_IDX, ROOM_MAPPING
 from house_diffusion import HouseDiffusionModel, GaussianDiffusion
 
+class CentroidAlignedConditionSampler:
+    """
+    Samples valid room configurations from the training outlines database
+    by finding matching templates for the query outline.
+    """
+    def __init__(self, train_outlines, max_total_corners=128):
+        self.train_outlines = train_outlines
+        self.max_total_corners = max_total_corners
+        self.query_outline_geom = None
+        self.probabilistic = True
+        self.top_k = 10
+        
+    def set_query(self, query_outline_geom, probabilistic=True, top_k=10):
+        self.query_outline_geom = query_outline_geom
+        self.probabilistic = probabilistic
+        self.top_k = top_k
+        
+    def sample(self, batch_size, device):
+        if self.query_outline_geom is None:
+            raise ValueError("Query outline geometry not set.")
+            
+        # Find nearest layout using centroid-aligned IoU
+        query_area = self.query_outline_geom.area
+        query_centroid = self.query_outline_geom.centroid
+        
+        candidate_matches = [
+            out for out in self.train_outlines
+            if 0.5 * query_area <= out["area"] <= 2.0 * query_area
+        ]
+        if not candidate_matches:
+            candidate_matches = self.train_outlines
+            
+        matches = []
+        for candidate in candidate_matches:
+            train_geom = candidate["geom"]
+            dx = query_centroid.x - train_geom.centroid.x
+            dy = query_centroid.y - train_geom.centroid.y
+            aligned_train_geom = shapely.affinity.translate(train_geom, xoff=dx, yoff=dy)
+            try:
+                intersection = self.query_outline_geom.intersection(aligned_train_geom).area
+                union = self.query_outline_geom.union(aligned_train_geom).area
+                iou = intersection / (union + 1e-8)
+            except Exception:
+                iou = 0.0
+            matches.append((iou, candidate))
+            
+        matches.sort(key=lambda x: x[0], reverse=True)
+        
+        batch_entity_type = []
+        batch_entity_idx = []
+        batch_corner_idx = []
+        batch_corner_mask = []
+        
+        for b in range(batch_size):
+            if self.probabilistic:
+                k = min(self.top_k, len(matches))
+                selected_idx = np.random.randint(0, k)
+                nearest = matches[selected_idx][1]
+            else:
+                nearest = matches[0][1]
+                
+            e_type = nearest["entity_type"].cpu().numpy()
+            e_idx = nearest["entity_idx"].cpu().numpy()
+            c_idx = nearest["corner_idx"].cpu().numpy()
+            
+            actual_len = len(e_type)
+            pad_len = max(0, self.max_total_corners - actual_len)
+            
+            b_mask = [1] * actual_len + [0] * pad_len
+            e_type = list(e_type) + [0] * pad_len
+            e_idx = list(e_idx) + [0] * pad_len
+            c_idx = list(c_idx) + [0] * pad_len
+            
+            batch_entity_type.append(e_type[:self.max_total_corners])
+            batch_entity_idx.append(e_idx[:self.max_total_corners])
+            batch_corner_idx.append(c_idx[:self.max_total_corners])
+            batch_corner_mask.append(b_mask[:self.max_total_corners])
+            
+        return {
+            "entity_type": torch.tensor(batch_entity_type, dtype=torch.long, device=device),
+            "entity_idx": torch.tensor(batch_entity_idx, dtype=torch.long, device=device),
+            "corner_idx": torch.tensor(batch_corner_idx, dtype=torch.long, device=device),
+            "corner_mask": torch.tensor(batch_corner_mask, dtype=torch.float32, device=device)
+        }
+
 class OutlineConditionedGenerator:
     """
     Retrieves the closest training layout's room configuration and uses the trained
@@ -57,11 +142,14 @@ class OutlineConditionedGenerator:
                 continue
         print(f"Database built with {len(self.train_outlines)} valid training outlines.")
         
+        # Initialize condition sampler using training database templates
+        self.condition_sampler = CentroidAlignedConditionSampler(self.train_outlines, max_total_corners=128)
+        
         # Initialize model
         self.model = HouseDiffusionModel(
             d_model=d_model,
             num_layers=num_layers,
-            num_room_types=32,
+            num_room_types=10,
             max_corners_per_room=512,
             max_rooms=512,
             max_outline_len=self.max_outline_len
@@ -69,25 +157,7 @@ class OutlineConditionedGenerator:
         
         if os.path.exists(model_path):
             print(f"Loading model weights from {model_path}...")
-            state_dict = torch.load(model_path, map_location=self.device)
-            model_state = self.model.state_dict()
-            
-            # Resolve embedding/parameter shape mismatches dynamically
-            adjusted_state_dict = {}
-            for k, v in state_dict.items():
-                if k in model_state:
-                    if v.shape != model_state[k].shape:
-                        print(f"Adjusting checkpoint param '{k}' from shape {v.shape} to match model shape {model_state[k].shape}...")
-                        adjusted_param = model_state[k].clone()
-                        slices = tuple(slice(0, min(s_dim, m_dim)) for s_dim, m_dim in zip(v.shape, model_state[k].shape))
-                        adjusted_param[slices] = v[slices]
-                        adjusted_state_dict[k] = adjusted_param
-                    else:
-                        adjusted_state_dict[k] = v
-                else:
-                    adjusted_state_dict[k] = v
-                    
-            self.model.load_state_dict(adjusted_state_dict, strict=False)
+            self.model.load_state_dict(torch.load(model_path, map_location=self.device))
         else:
             print(f"Warning: Model weights path '{model_path}' not found! Running with randomized weights.")
             
@@ -151,21 +221,11 @@ class OutlineConditionedGenerator:
     def generate(self, outline_polygon, probabilistic=True, top_k=10):
         """
         Main entry point for generating room partitions given a bare apartment outline.
+        Uses the generate_floorplan method from house_diffusion to sample layouts.
         Returns:
             List of tuples: (shapely.geometry.Polygon, room_type_name)
         """
-        # 1. Retrieve the best matching room configuration layout
-        nearest = self.find_nearest_layout(outline_polygon, probabilistic=probabilistic, top_k=top_k)
-        if nearest is None:
-            raise ValueError("No matching layout configuration found in the training database.")
-            
-        # Get query indices from nearest training example
-        entity_type = nearest["entity_type"].to(self.device).unsqueeze(0)  # (1, N)
-        entity_idx = nearest["entity_idx"].to(self.device).unsqueeze(0)    # (1, N)
-        corner_idx = nearest["corner_idx"].to(self.device).unsqueeze(0)    # (1, N)
-        N = entity_type.shape[1]
-        
-        # 2. Normalize outline polygon coordinates
+        # 1. Normalize outline polygon coordinates
         minx, miny, maxx, maxy = outline_polygon.bounds
         width = maxx - minx
         height = maxy - miny
@@ -191,52 +251,49 @@ class OutlineConditionedGenerator:
         outline_tensor = torch.tensor(outline_norm, dtype=torch.float32, device=self.device).unsqueeze(0)  # (1, M, 2)
         outline_mask = torch.ones(1, len(outline_norm), dtype=torch.float32, device=self.device)          # (1, M)
         
-        cond = {
-            "entity_type": entity_type,
-            "entity_idx": entity_idx,
-            "corner_idx": corner_idx,
-            "outline": outline_tensor,
-            "outline_mask": outline_mask,
-            "corner_mask": torch.ones_like(entity_type)
-        }
+        # 2. Use generate_floorplan to run reverse denoising
+        from house_diffusion import generate_floorplan
         
-        # 3. Denoise with diffusion model (sampling loop)
-        print("Denoising coordinates with HouseDiffusion...")
-        x_shape = (1, N, 2)
-        sampled_normalized = self.diffusion.p_sample_loop(self.model, x_shape, cond)  # (1, N, 2)
-        sampled_normalized = sampled_normalized.squeeze(0).cpu().numpy()              # (N, 2)
+        print("Denoising coordinates with generate_floorplan...")
+        self.condition_sampler.set_query(outline_polygon, probabilistic=probabilistic, top_k=top_k)
         
-        # 4. De-normalize generated coordinates back to original scale
+        layouts = generate_floorplan(
+            model=self.model,
+            diffusion=self.diffusion,
+            condition_sampler=self.condition_sampler,
+            outline=outline_tensor,
+            outline_mask=outline_mask,
+            max_corners=128
+        )
+        
+        layout = layouts[0]
+        sampled_normalized = layout["coordinates"].cpu().numpy()  # (N_active, 2)
+        entity_type_np = layout["room_types"].cpu().numpy()       # (N_active,)
+        entity_idx_np = layout["room_ids"].cpu().numpy()          # (N_active,)
+        
+        # 3. De-normalize generated coordinates back to original scale
         generated_corners = []
         for cx, cy in sampled_normalized:
             gx = cx * max_size + minx
             gy = cy * max_size + miny
             generated_corners.append((gx, gy))
             
-        # 5. Reconstruct room polygons
+        # 4. Reconstruct room polygons
         rooms = {}
-        entity_idx_np = entity_idx.squeeze(0).cpu().numpy()
-        entity_type_np = entity_type.squeeze(0).cpu().numpy()
-        corner_idx_np = corner_idx.squeeze(0).cpu().numpy()
-        
-        for i in range(N):
+        for i in range(len(sampled_normalized)):
             ent_id = entity_idx_np[i]
             if ent_id not in rooms:
                 rooms[ent_id] = {
                     "coords": [],
-                    "corner_indices": [],
                     "type_idx": entity_type_np[i]
                 }
             rooms[ent_id]["coords"].append(generated_corners[i])
-            rooms[ent_id]["corner_indices"].append(corner_idx_np[i])
             
         generated_polygons = []
         for ent_id, room in rooms.items():
-            # Sort the coordinates to match the correct corner sequence
-            sorted_pts = [c for _, c in sorted(zip(room["corner_indices"], room["coords"]))]
-            if len(sorted_pts) >= 3:
+            if len(room["coords"]) >= 3:
                 try:
-                    poly = Polygon(sorted_pts)
+                    poly = Polygon(room["coords"])
                     # Check validity; if invalid, try buffer(0)
                     if not poly.is_valid:
                         poly = poly.buffer(0)
