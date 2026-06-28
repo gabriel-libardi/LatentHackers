@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import random
 
 # Helper functions for 8-bit discrete coordinate branch
 def coord_to_binary(coords, num_bits=8):
@@ -288,7 +289,7 @@ class HouseDiffusionModel(nn.Module):
     outer apartment outlines instead of relational graphs.
     """
     def __init__(self, d_model=256, num_heads=8, d_ff=1024, num_layers=6, dropout=0.1,
-                 num_room_types=32, max_corners_per_room=512, max_rooms=512, max_outline_len=128):
+                 num_room_types=10, max_corners_per_room=512, max_rooms=512, max_outline_len=128):
         super().__init__()
         self.time_embed = TimestepEmbedding(d_model)
         self.corner_embed = CornerEmbedding(d_model, num_room_types, max_corners_per_room, max_rooms)

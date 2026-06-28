@@ -133,21 +133,11 @@ class OutlineConditionedGenerator:
     def generate(self, outline_polygon, probabilistic=True, top_k=10):
         """
         Main entry point for generating room partitions given a bare apartment outline.
+        Uses the generate_floorplan method from house_diffusion to sample layouts.
         Returns:
             List of tuples: (shapely.geometry.Polygon, room_type_name)
         """
-        # 1. Retrieve the best matching room configuration layout
-        nearest = self.find_nearest_layout(outline_polygon, probabilistic=probabilistic, top_k=top_k)
-        if nearest is None:
-            raise ValueError("No matching layout configuration found in the training database.")
-            
-        # Get query indices from nearest training example
-        entity_type = nearest["entity_type"].to(self.device).unsqueeze(0)  # (1, N)
-        entity_idx = nearest["entity_idx"].to(self.device).unsqueeze(0)    # (1, N)
-        corner_idx = nearest["corner_idx"].to(self.device).unsqueeze(0)    # (1, N)
-        N = entity_type.shape[1]
-        
-        # 2. Normalize outline polygon coordinates
+        # 1. Normalize outline polygon coordinates
         minx, miny, maxx, maxy = outline_polygon.bounds
         width = maxx - minx
         height = maxy - miny
@@ -173,35 +163,44 @@ class OutlineConditionedGenerator:
         outline_tensor = torch.tensor(outline_norm, dtype=torch.float32, device=self.device).unsqueeze(0)  # (1, M, 2)
         outline_mask = torch.ones(1, len(outline_norm), dtype=torch.float32, device=self.device)          # (1, M)
         
-        cond = {
-            "entity_type": entity_type,
-            "entity_idx": entity_idx,
-            "corner_idx": corner_idx,
-            "outline": outline_tensor,
-            "outline_mask": outline_mask,
-            "corner_mask": torch.ones_like(entity_type)
-        }
+        # 2. Use generate_floorplan to run reverse denoising
+        from house_diffusion import generate_floorplan, RoomConditionSampler
+        if not hasattr(self, "condition_sampler"):
+            self.condition_sampler = RoomConditionSampler(max_total_corners=128)
+            
+        print("Denoising coordinates with generate_floorplan...")
+        layouts = generate_floorplan(
+            model=self.model,
+            diffusion=self.diffusion,
+            condition_sampler=self.condition_sampler,
+            outline=outline_tensor,
+            outline_mask=outline_mask,
+            max_corners=128
+        )
         
-        # 3. Denoise with diffusion model (sampling loop)
-        print("Denoising coordinates with HouseDiffusion...")
-        x_shape = (1, N, 2)
-        sampled_normalized = self.diffusion.p_sample_loop(self.model, x_shape, cond)  # (1, N, 2)
-        sampled_normalized = sampled_normalized.squeeze(0).cpu().numpy()              # (N, 2)
+        layout = layouts[0]
+        sampled_normalized = layout["coordinates"].cpu().numpy()  # (N_active, 2)
+        entity_type_np = layout["room_types"].cpu().numpy()       # (N_active,)
+        entity_idx_np = layout["room_ids"].cpu().numpy()          # (N_active,)
         
-        # 4. De-normalize generated coordinates back to original scale
+        # 3. De-normalize generated coordinates back to original scale
         generated_corners = []
         for cx, cy in sampled_normalized:
             gx = cx * max_size + minx
             gy = cy * max_size + miny
             generated_corners.append((gx, gy))
             
-        # 5. Reconstruct room polygons
+        # 4. Reconstruct room polygons
         rooms = {}
-        entity_idx_np = entity_idx.squeeze(0).cpu().numpy()
-        entity_type_np = entity_type.squeeze(0).cpu().numpy()
-        corner_idx_np = corner_idx.squeeze(0).cpu().numpy()
-        
-        for i in range(N):
+        room_counters = {}
+        corner_idx_np = []
+        for r_id in entity_idx_np:
+            if r_id not in room_counters:
+                room_counters[r_id] = 0
+            corner_idx_np.append(room_counters[r_id])
+            room_counters[r_id] += 1
+            
+        for i in range(len(sampled_normalized)):
             ent_id = entity_idx_np[i]
             if ent_id not in rooms:
                 rooms[ent_id] = {
