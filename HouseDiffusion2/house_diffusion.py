@@ -235,62 +235,14 @@ class OutlineEncoder(nn.Module):
         return self.mlp(coord_emb + pos_emb)
 
 
-# =====================================================================
-# 3. Model Architecture
-# =====================================================================
-
-class HouseDiffusionBlock(nn.Module):
-    """
-    A single block of the HouseDiffusion Transformer.
-    Contains CSA, GSA, Outline Cross-Attention, and a Feed-Forward Network.
-    """
-    def __init__(self, d_model, num_heads, d_ff, dropout=0.1):
-        super().__init__()
-        self.csa_layer = MaskedSelfAttention(d_model, num_heads)
-        self.gsa_layer = MaskedSelfAttention(d_model, num_heads)
-        self.cross_attn = CrossAttention(d_model, num_heads)
-        
-        self.csa_norm = nn.LayerNorm(d_model)
-        self.gsa_norm = nn.LayerNorm(d_model)
-        self.cross_norm = nn.LayerNorm(d_model)
-        self.ffn_norm = nn.LayerNorm(d_model)
-        
-        self.mlp = nn.Sequential(
-            nn.Linear(d_model, d_ff),
-            nn.SiLU(),
-            nn.Dropout(dropout),
-            nn.Linear(d_ff, d_model),
-            nn.Dropout(dropout)
-        )
-        
-        self.csa_dropout = nn.Dropout(dropout)
-        self.gsa_dropout = nn.Dropout(dropout)
-        self.cross_dropout = nn.Dropout(dropout)
-        
-    def forward(self, x, outline_emb, csa_mask=None, gsa_mask=None, outline_mask=None):
-        # 1. Component-wise Self-Attention (CSA): limit interactions to corners of the same room
-        csa_out = self.csa_layer(self.csa_norm(x), mask=csa_mask)
-        x = x + self.csa_dropout(csa_out)
-        
-        # 2. Global Self-Attention (GSA): global interaction between rooms
-        gsa_out = self.gsa_layer(self.gsa_norm(x), mask=gsa_mask)
-        x = x + self.gsa_dropout(gsa_out)
-        
-        # 3. Outline Cross-Attention: align room geometries with the apartment boundaries
-        cross_out = self.cross_attn(self.cross_norm(x), outline_emb, memory_mask=outline_mask)
-        x = x + self.cross_dropout(cross_out)
-        
-        # 4. Feed-Forward Network
-        ffn_out = self.mlp(self.ffn_norm(x))
-        x = x + ffn_out
-        
-        return x
-
-
 class HouseDiffusionModel(nn.Module):
     def __init__(self, d_model=256, num_heads=8, d_ff=1024, num_cont_layers=4, num_disc_layers=2, dropout=0.1,
-                 num_room_types=32, max_corners_per_room=512, max_rooms=512, max_outline_len=128):
+                 num_room_types=32, max_corners_per_room=512, max_rooms=512, max_outline_len=128, num_layers=None):
         super().__init__()
+        if num_layers is not None:
+            num_cont_layers = max(1, int(num_layers * 2 // 3))
+            num_disc_layers = max(1, num_layers - num_cont_layers)
+            
         self.time_embed = TimestepEmbedding(d_model)
         self.outline_encoder = OutlineEncoder(d_model, max_outline_len)
         
