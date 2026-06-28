@@ -265,7 +265,7 @@ class HouseDiffusionModel(nn.Module):
     Reimplemented HouseDiffusion Transformer architecture conditioned on
     outer apartment outlines instead of relational graphs, without discrete denoising.
     """
-    def __init__(self, d_model=256, num_heads=8, d_ff=1024, num_layers=6, dropout=0.1,
+    def __init__(self, d_model=256, num_heads=8, d_ff=512, num_layers=6, dropout=0.1,
                  num_room_types=10, max_corners_per_room=512, max_rooms=512, max_outline_len=128):
         super().__init__()
         self.time_embed = TimestepEmbedding(d_model)
