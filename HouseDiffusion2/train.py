@@ -3,7 +3,7 @@ import os
 import torch
 from torch.utils.data import DataLoader
 from dataset import FloorplanDataset, collate_fn
-from house_diffusion import HouseDiffusionModel, GaussianDiffusion, coord_to_binary
+from house_diffusion import HouseDiffusionModel, GaussianDiffusion
 import kagglehub
 
 # Download latest version
